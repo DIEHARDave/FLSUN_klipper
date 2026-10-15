@@ -1,0 +1,120 @@
+# FLSUN_klipper
+
+Runs current upstream [Klipper](https://github.com/Klipper3d/klipper) on the **FLSun T1 Pro**, in place of FLSun's 2022 fork, and updates it from Mainsail's or Fluidd's update manager like any other Klipper.
+
+The mainboard isn't flashed: upstream Klipper talks to FLSun's mainboard firmware as it is. FLSun's Klipper, its `printer.cfg` and its service stay on the printer untouched, and one command switches between the two.
+
+## What it does
+
+1. **Installs upstream Klipper beside FLSun's.** It goes into `~/klipper-upstream`, a git checkout of Klipper's `master`, with its own Python environment in `~/klippy-env-upstream`. FLSun's `~/klipper` and `~/klippy-env` aren't touched.
+2. **Adds a config for upstream Klipper.** `printer_upstream.cfg` is made from your `printer.cfg`: your `[probe]` section and your calibration (delta calibration, bed meshes, PID, input shaper). The hardware and FLSun's macros come from this repo (`flsun_klipper/t1_pro.cfg`), so fixes arrive with updates.
+3. **Points the klipper service at upstream Klipper** with a systemd drop-in. FLSun's `klipper.service` and `klipper.env` aren't edited. If upstream Klipper doesn't start, the installer switches back to FLSun's Klipper and stops with the error.
+
+Plugins add their `[include]` lines to `printer.cfg`. Each time upstream Klipper starts, those lines are copied into `flsun_klipper_includes.cfg`, so plugins work with both Klippers. The few plugin files that only work with FLSun's Klipper are swapped for upstream versions (FLSUN_Macros' pause at layer).
+
+### What FLSun's Klipper did that this keeps
+
+FLSun changed about 900 lines of Klipper and added a closed-source library. These behaviors are rebuilt as macros and a small module:
+
+| FLSun's Klipper | Here |
+|---|---|
+| Switched the hotend heater's relay (PD6) on whenever the nozzle got a target | `M104`, `M109`, `SET_HEATER_TEMPERATURE` and `PID_CALIBRATE` do the same. The relay now also switches off if Klipper stops with an error. |
+| Paused for a filament runout only if it lasted 1 second | Same 1-second check (`_FLSUN_RUNOUT`) |
+| `F106 S0/S1` chamber light | Same command, from `extras/t1_box_light.py` |
+| Loaded the `default` bed mesh at startup | Same |
+| Used the slicer's `ACCEL_TO_DECEL` | Upstream dropped it and ignores it, which made prints 15–30% slower. `SET_VELOCITY_LIMIT` turns it into the equivalent `MINIMUM_CRUISE_RATIO`. |
+| Looser heater checks for the extruder | Same values (`[verify_heater extruder]`) |
+
+### What's different
+
+- **No power-loss recovery.** It's built into FLSun's Klipper and screen.
+- **No ADXL345 (resonance measurement).** FLSun's mainboard firmware speaks an older protocol. Your input shaper values keep working; to measure again, see [Input shaping](#input-shaping).
+- **No size calibration** (`SIZE_ANALYZE`, `M101`, `x_offset`/`y_offset` in `[printer]`). It does nothing unless you ran FLSun's size calibration.
+- **No FLSun bed-mesh adjustments.** FLSun's Klipper added a fixed 0.08 mm pattern to every new 7×7 mesh and lowered Z slightly along moves longer than 10 mm. Meshes made with FLSun's Klipper already include the first. If first layers look different from before, this is the place to look.
+- **FLSun-only commands are gone:** `F100`, `F102`–`F104`, `F108`, `F109`, `M108`, `M101`, `M205`, `M665`, `PRINTER_WORKMODE`. The stock macros no longer use them.
+- The extruder's `min_temp` is 0 °C instead of -200 °C, so a broken thermistor stops the printer.
+- Klipper reports two warnings at every start: the mainboard firmware is missing `spi_set_sw_bus` and `STEPPER_STEP_BOTH_EDGE`. They're expected and harmless.
+
+## Requirements
+
+- A T1 Pro with FLSun's firmware 1.0.0.6 (FLSun's Klipper reports `1.0.1.5`; the mainboard reports `v0.10.0-439-gdfa5afdf`).
+- [FLSUN_moonraker](https://github.com/DIEHARDave/FLSUN_moonraker). Upstream Klipper's Python packages need Python 3.10 or newer and a working compiler, and FLSun's image has neither; FLSUN_moonraker installs both.
+- About 300 MB free.
+
+## Install
+
+With [FLSUN_Updater](https://github.com/DIEHARDave/FLSUN_Updater): set `flsun_klipper: yes` in `flsun_plugins.cfg`, or run `ENABLE_PLUGIN NAME=flsun_klipper`.
+
+By hand, with the printer idle, SSH in as `pi` and run:
+
+```sh
+cd ~
+git clone https://github.com/DIEHARDave/FLSUN_klipper.git
+~/FLSUN_klipper/install.sh
+```
+
+The install takes about 10 minutes, most of it compiling Klipper's Python packages. Klipper is down only for the last few seconds. It can be run again at any time. Klipper stays at whatever version the update manager last installed; `KLIPPER_REF=<commit, tag or branch>` before the command switches it.
+
+## After installing
+
+- **Check homing and the probe first:** `G28`, then `PROBE_ACCURACY` in the middle of the bed. The probe is a pressure sensor that only triggers while moving, so `QUERY_PROBE` always shows `open`. The very first probe after the printer has been idle can read low; run `PROBE_ACCURACY` until its results are steady before calibrating.
+- **Calibration** (`BED_LEVEL_1`, `BED_LEVEL_2`, `PID_EXTRUDER`, `PID_BED`) works as before. `SAVE_CONFIG` writes to `printer_upstream.cfg`, so FLSun's `printer.cfg` keeps its own calibration.
+- **Your own changes** go in `printer_upstream.cfg`, below the `[include]` lines. Don't edit `flsun_klipper/*.cfg`; updates replace them.
+- **Updates:** Klipper and FLSUN_klipper both show in the update manager. Upstream Klipper still supports FLSun's mainboard firmware, but a future version could drop it; Klipper would then stop with a protocol or "command format mismatch" error. If that happens, switch back to FLSun's Klipper, then go back to the previous version with `git -C ~/klipper-upstream checkout <commit>` and `KLIPPER_REF=<commit> ~/FLSUN_klipper/install.sh`.
+
+## Switching
+
+```sh
+sudo ~/FLSUN_klipper/scripts/switch_klipper.sh stock      # FLSun's Klipper with printer.cfg
+sudo ~/FLSUN_klipper/scripts/switch_klipper.sh upstream   # upstream Klipper with printer_upstream.cfg
+~/FLSUN_klipper/scripts/switch_klipper.sh status
+```
+
+Switching restarts Klipper and refuses to run during a print.
+
+## Input shaping
+
+FLSun's Klipper can still use the ADXL345 with FLSun's mainboard firmware:
+
+1. `sudo ~/FLSUN_klipper/scripts/switch_klipper.sh stock`
+2. Run FLSun's `MEASURING_RESONANCES` (or `SHAPER_CALIBRATE`). The results are saved to `printer.cfg`.
+3. `sudo ~/FLSUN_klipper/scripts/switch_klipper.sh upstream`, then copy the `shaper_type_x`, `shaper_freq_x`, `shaper_type_y` and `shaper_freq_y` values from the end of `printer.cfg` into the `[input_shaper]` section at the end of `printer_upstream.cfg`, and restart Klipper.
+
+## The mainboard (optional)
+
+Nothing here flashes the mainboard. For people who want to (for the ADXL345 or newer firmware features), `tools/` has what has been worked out so far:
+
+- The mainboard is an STM32F103VE with the MKS Robin Nano 28 KiB bootloader. Upstream Klipper firmware for it: STM32F103, 28 KiB bootloader, 8 MHz crystal, serial on USART3 (PB11/PB10), 250000 baud. The bootloader flashes `Robin_nano35.bin` (made with `scripts/update_mks_robin.py`) from the microSD card in the **mainboard's** slot, not the Linux board's.
+- **Back up the mainboard first:** `sudo ~/FLSUN_klipper/tools/backup_mcu.sh` saves its whole flash (bootloader and FLSun's firmware) and stops Klipper for about 12 minutes. FLSun's STM32 is read-protected, so an ST-Link can't read it, and removing the protection erases the bootloader. Reading it through Klipper is the only way to keep a copy, and the copy is the only way back to FLSun's firmware.
+- `tools/t1_spi_flash.py` writes firmware to the mainboard's card from the printer, using upstream Klipper's `spi_flash`. Its `-c` check, which only reads the card, has been run on a T1 Pro; flashing through it hasn't been tried yet.
+
+Once the mainboard runs new firmware, FLSun's Klipper can no longer talk to it, so switching back to stock also means flashing FLSun's firmware back.
+
+## Testing changes
+
+`test/check_config.sh` loads the config with upstream Klipper on any Linux PC (WSL works), against the command dictionary of FLSun's mainboard firmware, and runs `test/commands.gcode`. It catches config errors and commands the stock mainboard firmware doesn't have, without a printer:
+
+```sh
+test/check_config.sh ~/klipper ~/klippy-env/bin/python
+```
+
+## Uninstall
+
+With FLSUN_Updater: `DISABLE_PLUGIN NAME=flsun_klipper`. By hand:
+
+```sh
+~/FLSUN_klipper/uninstall.sh
+rm -rf ~/FLSUN_klipper
+```
+
+This switches back to FLSun's Klipper and removes `~/klipper-upstream` and `~/klippy-env-upstream`. `printer_upstream.cfg` is kept, with the calibration made under upstream Klipper, and a later install uses it again.
+
+## Credits
+
+- [Klipper](https://github.com/Klipper3d/klipper)
+- [BehaviorBean/flsun-t1pro-debian12-klipper](https://github.com/BehaviorBean/flsun-t1pro-debian12-klipper): showed that upstream Klipper works with FLSun's mainboard firmware, and the hardware notes (hotend relay, probe, chamber light)
+- [mulcmu/T1-pyro](https://github.com/mulcmu/T1-pyro): mainboard and bootloader research
+
+## License
+
+GPL-3.0, like Klipper. See [LICENSE](LICENSE). The config is derived from FLSun's stock `printer.cfg`.
