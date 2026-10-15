@@ -62,10 +62,10 @@ msg "Using $PY"
 # --- Upstream Klipper ----------------------------------------------------------------
 if [ ! -d "${KLIPPER_DIR}/.git" ]; then
     msg "Cloning upstream Klipper into ${KLIPPER_DIR}"
-    git clone "$KLIPPER_REPO" "$KLIPPER_DIR"
+    git clone -q "$KLIPPER_REPO" "$KLIPPER_DIR"
     REF="${ASKED_REF:-$TESTED_KLIPPER_REF}"
 elif [ -n "$ASKED_REF" ]; then
-    git -C "$KLIPPER_DIR" fetch --tags origin
+    git -C "$KLIPPER_DIR" fetch -q --tags origin
     REF="$ASKED_REF"
 else
     REF=""
