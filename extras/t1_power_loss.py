@@ -192,6 +192,12 @@ class T1PowerLoss:
         self.interrupted = False
         self.gcode.run_script_from_command(
             "M23 %s\nM26 S%d\nM24" % (rel, state['file_position']))
+        # Opening the file reset print_stats' layer info, and upstream ignores
+        # CURRENT_LAYER until TOTAL_LAYER is set, so restore both now.
+        if state.get('total_layer'):
+            self.gcode.run_script_from_command(
+                "SET_PRINT_STATS_INFO TOTAL_LAYER=%d CURRENT_LAYER=%d" % (
+                    state['total_layer'], state.get('current_layer') or 0))
 
     def get_status(self, eventtime):
         return {'interrupted': self.interrupted and bool(self.state),
