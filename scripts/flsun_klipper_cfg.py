@@ -15,6 +15,7 @@
 Standard library only, and Python 3.7, so FLSun's system Python can run it.
 """
 
+import glob
 import os
 import re
 import sys
@@ -26,11 +27,12 @@ UPSTREAM_CFG = os.path.join(CONFIG_DIR, "printer_upstream.cfg")
 INCLUDES_CFG = os.path.join(CONFIG_DIR, "flsun_klipper_includes.cfg")
 SAVE_MARK = "#*# <---------------------- SAVE_CONFIG ---------------------->"
 
-# printer.cfg includes that only work with FLSun's Klipper, and what upstream
-# Klipper includes instead (None: nothing).
+# Files included by printer.cfg that only work with FLSun's Klipper, and what
+# upstream Klipper includes instead (None: nothing). Wildcard includes are
+# expanded file by file, so the rest of a folder is still included.
 REPLACE = {
     # FLSUN_Macros defines SET_PRINT_STATS_INFO, which upstream has built in.
-    "flsun_macros/*.cfg": "flsun_klipper/compat/flsun_macros.cfg",
+    "flsun_macros/pause_at_layer.cfg": "flsun_klipper/compat/flsun_macros.cfg",
 }
 
 REPO_DIR = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -116,11 +118,21 @@ def cmd_includes():
             if not m:
                 continue
             name = m.group(1)
-            if name in REPLACE:
-                if REPLACE[name]:
-                    lines.append("[include %s]  # instead of %s" % (REPLACE[name], name))
-                continue
-            lines.append("[include %s]" % name)
+            if not any(c in name for c in "*?["):
+                names = [name]
+            else:
+                # Klipper expands wildcards from the including file's folder.
+                names = sorted(os.path.relpath(f, CONFIG_DIR).replace(os.sep, "/")
+                               for f in glob.glob(os.path.join(CONFIG_DIR, name)))
+                if not any(n in REPLACE for n in names):
+                    lines.append("[include %s]" % name)
+                    continue
+            for n in names:
+                if n in REPLACE:
+                    if REPLACE[n]:
+                        lines.append("[include %s]  # instead of %s" % (REPLACE[n], n))
+                else:
+                    lines.append("[include %s]" % n)
     text = ("# Written by FLSUN_klipper each time upstream Klipper starts: the [include]\n"
             "# lines of printer.cfg. Don't edit; changes are overwritten.\n\n"
             + "\n".join(lines) + "\n")
