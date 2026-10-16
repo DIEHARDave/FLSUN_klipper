@@ -78,12 +78,6 @@ if [ -n "$REF" ]; then
     git -C "$KLIPPER_DIR" branch -q -u origin/master
 fi
 
-# This repo's Klipper module, linked in; git ignores it, so the update manager
-# doesn't call the repo modified.
-ln -sfn "${REPO_DIR}/extras/t1_box_light.py" "${KLIPPER_DIR}/klippy/extras/t1_box_light.py"
-grep -qx "klippy/extras/t1_box_light.py" "${KLIPPER_DIR}/.git/info/exclude" 2> /dev/null \
-    || echo "klippy/extras/t1_box_light.py" >> "${KLIPPER_DIR}/.git/info/exclude"
-
 REQS="${KLIPPER_DIR}/scripts/klippy-requirements.txt"
 STAMP="${KLIPPY_ENV}/.flsun_klipper_requirements"
 if [ ! -x "${KLIPPY_ENV}/bin/python" ]; then
@@ -104,6 +98,9 @@ msg "Linking the config into ${CONFIG_DIR}/flsun_klipper"
 ln -sfn "${REPO_DIR}/config" "${CONFIG_DIR}/flsun_klipper"
 python3 "${REPO_DIR}/scripts/flsun_klipper_cfg.py" create
 python3 "${REPO_DIR}/scripts/flsun_klipper_cfg.py" includes
+# This repo's Klipper modules, linked into upstream Klipper. The klipper
+# service does this again before each start, so updates bring new ones.
+python3 "${REPO_DIR}/scripts/flsun_klipper_cfg.py" extras
 
 # --- Switch --------------------------------------------------------------------------
 msg "Switching the klipper service to upstream Klipper"

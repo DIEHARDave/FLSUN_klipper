@@ -19,7 +19,7 @@ cp "$TEST/printer.cfg" "$WORK/printer.cfg"
 ln -s "$REPO/config" "$WORK/flsun_klipper"
 FLSUN_KLIPPER_CONFIG_DIR="$WORK" python3 "$REPO/scripts/flsun_klipper_cfg.py" create
 FLSUN_KLIPPER_CONFIG_DIR="$WORK" python3 "$REPO/scripts/flsun_klipper_cfg.py" includes
-ln -sfn "$REPO/extras/t1_box_light.py" "$KLIPPER/klippy/extras/t1_box_light.py"
+FLSUN_KLIPPER_KLIPPER_DIR="$KLIPPER" python3 "$REPO/scripts/flsun_klipper_cfg.py" extras
 
 set +e
 "$PY" "$KLIPPER/klippy/klippy.py" "$WORK/printer_upstream.cfg" -i "$TEST/commands.gcode" \

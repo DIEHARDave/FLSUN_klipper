@@ -22,12 +22,12 @@ FLSun changed about 900 lines of Klipper and added a closed-source library. Thes
 | Paused for a filament runout only if it lasted 1 second | Same 1-second check (`_FLSUN_RUNOUT`) |
 | `F106 S0/S1` chamber light | Same command, from `extras/t1_box_light.py` |
 | Loaded the `default` bed mesh at startup | Same |
+| Power loss recovery: saved the print at each layer change and offered to continue | Same, with a prompt in Mainsail and Fluidd ([below](#power-loss-recovery)) |
 | Used the slicer's `ACCEL_TO_DECEL` | Upstream dropped it and ignores it, which made prints 15–30% slower. `SET_VELOCITY_LIMIT` turns it into the equivalent `MINIMUM_CRUISE_RATIO`. |
 | Looser heater checks for the extruder | Same values (`[verify_heater extruder]`) |
 
 ### What's different
 
-- **No power-loss recovery.** It's built into FLSun's Klipper and screen.
 - **No ADXL345 (resonance measurement).** FLSun's mainboard firmware speaks an older protocol. Your input shaper values keep working; to measure again, see [Input shaping](#input-shaping).
 - **No size calibration** (`SIZE_ANALYZE`, `M101`, `x_offset`/`y_offset` in `[printer]`). It does nothing unless you ran FLSun's size calibration.
 - **No FLSun bed-mesh adjustments.** FLSun's Klipper added a fixed 0.08 mm pattern to every new 7×7 mesh and lowered Z slightly along moves longer than 10 mm. Meshes made with FLSun's Klipper already include the first. If first layers look different from before, this is the place to look.
@@ -71,6 +71,17 @@ sudo ~/FLSUN_klipper/scripts/switch_klipper.sh upstream   # upstream Klipper wit
 ```
 
 Switching restarts Klipper and refuses to run during a print.
+
+## Power loss recovery
+
+Like FLSun's, it saves where the print is at each layer change: the file and the position in it, the toolhead position, the temperatures, fan, Z offset, bed mesh and pressure advance. The checkpoint is written to a new file that then replaces the old one, so a power cut never leaves a broken checkpoint. When the print completes or is cancelled, it's removed.
+
+After the power comes back, Mainsail and Fluidd ask whether to continue the print. Check that the part is still stuck to the bed first. **Resume** (or `RESUME_INTERRUPTED`) warms the bed and the nozzle and homes; on a delta that moves the nozzle up, away from the part. Then it heats to the print's temperatures, restores the offset, mesh and fan, moves over the part and carries on. **Discard** (or `PLR_DISCARD`) forgets the print.
+
+- The layer that was printing when the power went is printed again from its start, so there may be a mark at that height.
+- The slicer has to report layers. In Orca, the printer's **Layer change G-code** needs `SET_PRINT_STATS_INFO CURRENT_LAYER={layer_num + 1}`, and the **Machine start G-code** `SET_PRINT_STATS_INFO TOTAL_LAYER=[total_layer_count]`. Without them nothing is saved.
+- If the bed cooled down long enough for the part to come loose, resuming won't help.
+- Moonraker's history shows the resumed part as a new job.
 
 ## Input shaping
 
