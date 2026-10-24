@@ -23,6 +23,7 @@ import glob
 import os
 import re
 import sys
+import time
 
 CONFIG_DIR = os.environ.get("FLSUN_KLIPPER_CONFIG_DIR",
                             os.path.expanduser("~pi/printer_data/config"))
@@ -97,6 +98,22 @@ def split_saved(text):
     """(config, SAVE_CONFIG block or "")."""
     i = text.find(SAVE_MARK)
     return (text, "") if i < 0 else (text[:i], text[i:])
+
+
+def repair_saved(saved):
+    """(SAVE_CONFIG block, lines dropped). Klipper ignores the whole block, and
+    with it the delta calibration, if a line after the header doesn't start
+    with "#*# " ("modifications after header"), so drop those lines."""
+    head, _, body = saved.partition("\n")
+    if not body.strip():
+        return saved, 0
+    keep, dropped = [], 0
+    for line in body.strip().split("\n"):
+        if line == "#*#" or line.startswith("#*# "):
+            keep.append(line)
+        else:
+            dropped += 1
+    return head + "\n" + "\n".join(keep) + "\n", dropped
 
 
 def section(text, name):
@@ -204,10 +221,10 @@ def cmd_create():
         print("%s exists; left as it is" % UPSTREAM_CFG)
         return
     config, saved = split_saved(read(STOCK_CFG))
+    saved = repair_saved(saved)[0]
     probe = section(config, "probe")
     if not probe:
         sys.exit("No [probe] section in %s" % STOCK_CFG)
-    import time
     text = HEADER.format(date=time.strftime("%Y-%m-%d")) + probe + "\n\n"
     extra, added, lost = missing_calibration(saved, config + saved)
     if extra:
@@ -231,8 +248,15 @@ def fix_calibration():
     text, stock_text = read(UPSTREAM_CFG), read(STOCK_CFG)
     config, saved = split_saved(text)
     notes = []
+    saved, dropped = repair_saved(saved)
+    if dropped:
+        backup = UPSTREAM_CFG + ".bak-" + time.strftime("%Y%m%d-%H%M%S")
+        write(backup, text)
+        print("Removed %d line(s) without #*# from the SAVE_CONFIG block of %s;"
+              " Klipper ignored the whole block because of them. Before: %s"
+              % (dropped, UPSTREAM_CFG, backup))
     if not saved:
-        saved = split_saved(stock_text)[1]
+        saved, _ = repair_saved(split_saved(stock_text)[1])
         if saved:
             notes.append("printer.cfg's SAVE_CONFIG block")
     extra, added, lost = missing_calibration(config + saved, stock_text)
@@ -240,7 +264,7 @@ def fix_calibration():
     for n in lost:
         print("%s has no %s, and printer.cfg neither" % (UPSTREAM_CFG, n))
     unshadowed = unshadow(config, saved)
-    if not notes and unshadowed == config:
+    if not notes and not dropped and unshadowed == config:
         return
     write(UPSTREAM_CFG, unshadowed.rstrip("\n") + "\n\n"
           + (extra + "\n" if extra else "") + saved.rstrip("\n") + "\n")
