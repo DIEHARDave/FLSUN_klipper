@@ -3,12 +3,15 @@
 
     flsun_klipper_cfg.py create    Write printer_upstream.cfg, if it doesn't exist,
                                    from FLSun's printer.cfg: its [probe] section and
-                                   its calibration (the SAVE_CONFIG block).
+                                   its calibration (the SAVE_CONFIG block), and
+                                   the heaters' control if that lacks it.
     flsun_klipper_cfg.py includes  Write flsun_klipper_includes.cfg: the [include]
                                    lines of printer.cfg, where plugins add theirs,
                                    with stock-only files swapped for upstream ones.
-                                   Also links the modules (as extras does). Runs
-                                   before every start of upstream Klipper.
+                                   Also links the modules (as extras does) and adds
+                                   the heaters' control to printer_upstream.cfg if
+                                   it lacks it. Runs before every start of
+                                   upstream Klipper.
     flsun_klipper_cfg.py extras    Link this repo's extras/*.py into upstream
                                    Klipper's klippy/extras, hidden from git.
 
@@ -41,6 +44,19 @@ KLIPPER_DIR = os.environ.get("FLSUN_KLIPPER_KLIPPER_DIR",
                              os.path.expanduser("~pi/klipper-upstream"))
 
 INCLUDE_RE = re.compile(r"^\[include\s+([^\]]+?)\s*\]")
+
+# t1_pro.cfg can't set the heaters' control: upstream's SAVE_CONFIG refuses to
+# save an option that an included file sets, which would break PID_CALIBRATE.
+# So printer_upstream.cfg itself needs it, unless its calibration has it.
+# FLSun's printer.cfg has it in the main sections, and in the SAVE_CONFIG block
+# only if a PID tune was saved.
+CONTROL_RE = re.compile(r"^\s*(control|pid_k[pid]|max_delta)\s*[:=]", re.I)
+FACTORY_CONTROL = {
+    "extruder": ["control: pid", "pid_Kp: 14.155", "pid_Ki: 0.303",
+                 "pid_Kd: 165.086"],
+    "heater_bed": ["control: pid", "pid_Kp: 18.240", "pid_Ki: 0.558",
+                   "pid_Kd: 149.109"],
+}
 
 HEADER = """\
 # printer.cfg for UPSTREAM Klipper on the FLSun T1 Pro, used while FLSUN_klipper
@@ -85,6 +101,43 @@ def section(text, name):
     return "\n".join(out)
 
 
+def unsaved(saved):
+    """A SAVE_CONFIG block as plain config, without the #*# prefixes."""
+    return "\n".join(re.sub(r"^#\*# ?", "", l) for l in saved.split("\n"))
+
+
+def control_lines(text, name):
+    return [l.strip() for l in section(text, name).split("\n")
+            if CONTROL_RE.match(l)]
+
+
+def has_control(text, name):
+    return any(re.match(r"^\s*control\s*[:=]", l, re.I)
+               for l in control_lines(text, name))
+
+
+def heater_control(upstream_text, stock_text):
+    """Sections that give the heaters printer_upstream.cfg lacks a control,
+    from printer.cfg's calibration, its main sections or FLSun's factory PID."""
+    config, saved = split_saved(upstream_text)
+    stock_config, stock_saved = split_saved(stock_text)
+    out = []
+    for name in ("extruder", "heater_bed"):
+        if has_control(config, name) or has_control(unsaved(saved), name):
+            continue
+        for source, text in (("calibration", unsaved(stock_saved)),
+                             ("settings", stock_config)):
+            if has_control(text, name):
+                lines = control_lines(text, name)
+                break
+        else:
+            source, lines = "factory settings", FACTORY_CONTROL[name]
+        out.append("# The %s heater control from printer.cfg's %s. PID_CALIBRATE\n"
+                   "# and SAVE_CONFIG override it.\n[%s]\n%s\n"
+                   % (name, source, name, "\n".join(lines)))
+    return "\n".join(out)
+
+
 def write(path, text):
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8", newline="\n") as f:
@@ -102,6 +155,9 @@ def cmd_create():
         sys.exit("No [probe] section in %s" % STOCK_CFG)
     import time
     text = HEADER.format(date=time.strftime("%Y-%m-%d")) + probe + "\n\n"
+    heaters = heater_control(saved, config + saved)
+    if heaters:
+        text += heaters + "\n"
     if saved:
         text += saved.rstrip("\n") + "\n"
     write(UPSTREAM_CFG, text)
@@ -109,7 +165,23 @@ def cmd_create():
         UPSTREAM_CFG, "the calibration" if saved else "no calibration"))
 
 
+def fix_heater_control():
+    """Add the heater control to a printer_upstream.cfg made without it, which
+    upstream Klipper won't start with."""
+    if not (os.path.exists(UPSTREAM_CFG) and os.path.exists(STOCK_CFG)):
+        return
+    text = read(UPSTREAM_CFG)
+    heaters = heater_control(text, read(STOCK_CFG))
+    if not heaters:
+        return
+    config, saved = split_saved(text)
+    write(UPSTREAM_CFG, config.rstrip("\n") + "\n\n" + heaters
+          + ("\n" + saved if saved else ""))
+    print("Added the heater control to %s" % UPSTREAM_CFG)
+
+
 def cmd_includes():
+    fix_heater_control()
     lines = []
     if os.path.exists(STOCK_CFG):
         config, _saved = split_saved(read(STOCK_CFG))

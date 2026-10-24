@@ -7,7 +7,7 @@ The mainboard isn't flashed: upstream Klipper talks to FLSun's mainboard firmwar
 ## What it does
 
 1. **Installs upstream Klipper beside FLSun's.** It goes into `~/klipper-upstream`, a git checkout of Klipper's `master`, with its own Python environment in `~/klippy-env-upstream`. FLSun's `~/klipper` and `~/klippy-env` aren't touched.
-2. **Adds a config for upstream Klipper.** `printer_upstream.cfg` is made from your `printer.cfg`: your `[probe]` section and your calibration (delta calibration, bed meshes, PID, input shaper). The hardware and FLSun's macros come from this repo (`flsun_klipper/t1_pro.cfg`), so fixes arrive with updates.
+2. **Adds a config for upstream Klipper.** `printer_upstream.cfg` is made from your `printer.cfg`: your `[probe]` section and your calibration (delta calibration, bed meshes, PID, input shaper), plus the heaters' PID settings from `printer.cfg` if you never saved a PID tune. The hardware and FLSun's macros come from this repo (`flsun_klipper/t1_pro.cfg`), so fixes arrive with updates.
 3. **Points the klipper service at upstream Klipper** with a systemd drop-in. FLSun's `klipper.service` and `klipper.env` aren't edited. If upstream Klipper doesn't start, the installer switches back to FLSun's Klipper and stops with the error.
 
 Plugins add their `[include]` lines to `printer.cfg`. Each time upstream Klipper starts, those lines are copied into `flsun_klipper_includes.cfg`, so plugins work with both Klippers. The few plugin files that only work with FLSun's Klipper are swapped for upstream versions (FLSUN_Macros' pause at layer).
