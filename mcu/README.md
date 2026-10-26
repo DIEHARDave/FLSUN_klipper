@@ -21,6 +21,7 @@ All of this was done on a real FLSun T1 Pro (FLSun firmware 1.0.0.6, mainboard f
 | 6. Checks | Klipper restarted once for `adxl.cfg`. Then: no firmware warnings, version recorded, `adxl.cfg` included, numpy present, `ACCELEROMETER_QUERY` answered. |
 | 7. `PROBE_ACCURACY` | Run 1: range 0.047 mm, standard deviation 0.014 mm. Run 2: range 0.038 mm, standard deviation 0.011 mm, average −0.29 mm both times. |
 | 8. `MEASURING_RESONANCES` | X: EI 40.6 Hz (MZV 34.6 Hz, 2.9 % vibrations). Y: MZV 34.6 Hz. Saved. An earlier manual run on the same printer gave the same values. |
+| Test print | `calicat_PLA_12m41s.gcode` (PLA, OrcaSlicer, adaptive mesh) completed: all 175 layers in 13 min 42 s, 1735 of 1748 mm of filament, on the new firmware with the new input shaper. |
 
 **The rollback was tested on the same printer too.** Just before that run, `mcu_update.py rollback` put FLSun's stock firmware back on the flashed mainboard. After the power cycle, the first start stopped with "MCU Protocol error" while Klipper dropped `adxl.cfg`. The script restarted Klipper, and it came up ready on `v0.10.0-439-gdfa5afdf` with FLSun's two usual warnings.
 
