@@ -8,6 +8,10 @@
 # Upstream is a systemd drop-in that overrides only the Python, the Klipper path and
 # the config file. FLSun's klipper.service and klipper.env are never edited; "stock"
 # removes the drop-in. Both refuse to switch during a print.
+#
+# FLSun's Klipper only talks to FLSun's mainboard firmware. "stock" refuses while the
+# mainboard runs anything else (upstream Klipper records the version it reports, see
+# extras/t1_mcu_version.py). After flashing FLSun's firmware back, "stock --force".
 set -u
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HOME_PI=/home/pi
@@ -16,6 +20,8 @@ DROPIN=$DROPIN_DIR/flsun_klipper_upstream.conf
 ENV_UP=$HOME_PI/printer_data/systemd/klipper_upstream.env
 LOG=$HOME_PI/printer_data/logs/klippy.log
 MOONRAKER=http://127.0.0.1:7125
+MCU_VERSION_FILE=$HOME_PI/printer_data/flsun_klipper_mcu_version
+STOCK_MCU_VERSION=v0.10.0-439-gdfa5afdf
 
 state() {
     curl -s -m 5 "$MOONRAKER/printer/objects/query?webhooks=state&print_stats=state" \
@@ -39,6 +45,18 @@ wait_ready() {
 }
 
 need_root() { [ "$(id -u)" = 0 ] || { echo "Run with sudo."; exit 1; }; }
+
+# The mainboard firmware upstream Klipper last saw; empty if it never recorded one.
+mcu_version() { cat "$MCU_VERSION_FILE" 2>/dev/null | tr -d '[:space:]'; }
+
+refuse_if_flashed() {
+    local v; v=$(mcu_version)
+    [ -n "$v" ] && [ "$v" != "$STOCK_MCU_VERSION" ] || return 0
+    echo "The mainboard runs firmware $v, not FLSun's $STOCK_MCU_VERSION."
+    echo "FLSun's Klipper can't talk to it, so the service stays on upstream Klipper."
+    echo "Flash FLSun's firmware back first, then run: switch_klipper.sh stock --force"
+    exit 1
+}
 
 case "${1:-status}" in
 upstream)
@@ -73,6 +91,7 @@ EOF
     ;;
 stock)
     need_root
+    [ "${2:-}" = --force ] || refuse_if_flashed
     refuse_if_printing
     rm -f "$DROPIN"
     rmdir "$DROPIN_DIR" 2>/dev/null
@@ -84,7 +103,8 @@ stock)
 status)
     if [ -f "$DROPIN" ]; then echo "Set up: upstream Klipper"; else echo "Set up: FLSun's stock Klipper"; fi
     echo "Klipper: $(state)"
+    echo "Mainboard firmware: $(mcu_version || true)"
     ;;
 *)
-    echo "usage: switch_klipper.sh upstream|stock|status"; exit 1 ;;
+    echo "usage: switch_klipper.sh upstream|stock [--force]|status"; exit 1 ;;
 esac

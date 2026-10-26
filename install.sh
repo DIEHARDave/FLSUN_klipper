@@ -106,6 +106,7 @@ python3 "${REPO_DIR}/scripts/flsun_klipper_cfg.py" extras
 msg "Switching the klipper service to upstream Klipper"
 if ! sudo bash "${REPO_DIR}/scripts/switch_klipper.sh" upstream; then
     msg "Upstream Klipper didn't start; switching back to FLSun's Klipper"
+    # Refused (and upstream kept) if the mainboard no longer runs FLSun's firmware.
     sudo bash "${REPO_DIR}/scripts/switch_klipper.sh" stock || true
     die "upstream Klipper didn't come up ready; see the klippy.log lines above"
 fi

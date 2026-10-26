@@ -99,7 +99,7 @@ Nothing here flashes the mainboard. For people who want to (for the ADXL345 or n
 - **Back up the mainboard first:** `sudo ~/FLSUN_klipper/tools/backup_mcu.sh` saves its whole flash (bootloader and FLSun's firmware) and stops Klipper for about 12 minutes. FLSun's STM32 is read-protected, so an ST-Link can't read it, and removing the protection erases the bootloader. Reading it through Klipper is the only way to keep a copy, and the copy is the only way back to FLSun's firmware.
 - `tools/t1_spi_flash.py` writes firmware to the mainboard's card from the printer, using upstream Klipper's `spi_flash`. Its `-c` check, which only reads the card, has been run on a T1 Pro; flashing through it hasn't been tried yet.
 
-Once the mainboard runs new firmware, FLSun's Klipper can no longer talk to it, so switching back to stock also means flashing FLSun's firmware back.
+Once the mainboard runs new firmware, FLSun's Klipper can no longer talk to it, so switching back to stock also means flashing FLSun's firmware back. Upstream Klipper records the firmware version the mainboard reports at every start (`~/printer_data/flsun_klipper_mcu_version`). While that isn't FLSun's `v0.10.0-439-gdfa5afdf`, `switch_klipper.sh stock`, `uninstall.sh` and FLSUN_Updater's `[restore]` keep the service on upstream Klipper instead of switching to a Klipper that can't connect. After flashing FLSun's firmware back, `sudo ~/FLSUN_klipper/scripts/switch_klipper.sh stock --force`.
 
 ## Testing changes
 
