@@ -90,6 +90,9 @@ if ! cmp -s "$REQS" "$STAMP"; then
     "${KLIPPY_ENV}/bin/pip" install -q -r "$REQS"
     cp "$REQS" "$STAMP"
 fi
+# numpy for SHAPER_CALIBRATE (ADXL345 on a flashed mainboard). Nothing on PyPI
+# or piwheels runs on Debian 10, so the repo carries one built on a T1 Pro.
+python3 "${REPO_DIR}/scripts/flsun_klipper_cfg.py" numpy
 msg "Building Klipper's C helper"
 ( cd "${KLIPPER_DIR}/klippy" && "${KLIPPY_ENV}/bin/python" -c "import chelper; chelper.get_ffi()" )
 

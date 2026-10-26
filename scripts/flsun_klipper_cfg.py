@@ -16,6 +16,10 @@
                                    upstream Klipper.
     flsun_klipper_cfg.py extras    Link this repo's extras/*.py into upstream
                                    Klipper's klippy/extras, hidden from git.
+    flsun_klipper_cfg.py numpy     Install wheels/numpy-*.whl into upstream
+                                   Klipper's Python if it has no numpy (for
+                                   SHAPER_CALIBRATE). includes does this too
+                                   once the mainboard is flashed.
 
 Standard library only, and Python 3.7, so FLSun's system Python can run it.
 """
@@ -23,6 +27,7 @@ Standard library only, and Python 3.7, so FLSun's system Python can run it.
 import glob
 import os
 import re
+import subprocess
 import sys
 import time
 
@@ -52,6 +57,8 @@ REPO_DIR = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 EXTRAS_DIR = os.path.join(REPO_DIR, "extras")
 KLIPPER_DIR = os.environ.get("FLSUN_KLIPPER_KLIPPER_DIR",
                              os.path.expanduser("~pi/klipper-upstream"))
+KLIPPY_PYTHON = os.environ.get(
+    "FLSUN_KLIPPER_PYTHON", os.path.expanduser("~pi/klippy-env-upstream/bin/python"))
 
 INCLUDE_RE = re.compile(r"^\[include\s+([^\]]+?)\s*\]")
 
@@ -282,6 +289,34 @@ def fix_calibration():
         print("Commented out the added settings the SAVE_CONFIG block sets")
 
 
+def flashed_mcu_version():
+    """The mainboard's firmware version if it isn't FLSun's, else None."""
+    try:
+        version = read(MCU_VERSION_FILE).strip()
+    except OSError:
+        return None
+    return version if version and version != STOCK_MCU_VERSION else None
+
+
+def cmd_numpy():
+    """Installs the bundled numpy into upstream Klipper's Python, if it has
+    none. No numpy wheel on PyPI or piwheels runs on FLSun's Debian 10."""
+    if not os.path.exists(KLIPPY_PYTHON):
+        return
+    if subprocess.call([KLIPPY_PYTHON, "-c", "import importlib.util, sys; "
+                        "sys.exit(importlib.util.find_spec('numpy') is None)"]) == 0:
+        return
+    wheels = sorted(glob.glob(os.path.join(REPO_DIR, "wheels", "numpy-*.whl")))
+    if not wheels:
+        print("No numpy wheel in %s/wheels" % REPO_DIR)
+        return
+    print("Installing %s for SHAPER_CALIBRATE" % os.path.basename(wheels[-1]))
+    if subprocess.call([KLIPPY_PYTHON, "-m", "pip", "install", "-q",
+                        "--no-deps", "--no-index", wheels[-1]]) != 0:
+        print("Couldn't install numpy; the wheel is for Python 3.13 on 32-bit "
+              "ARM (FLSUN_moonraker's Python). See wheels/build_numpy.sh.")
+
+
 def cmd_includes():
     fix_calibration()
     lines = []
@@ -307,12 +342,11 @@ def cmd_includes():
                         lines.append("[include %s]  # instead of %s" % (REPLACE[n], n))
                 else:
                     lines.append("[include %s]" % n)
-    try:
-        mcu_version = read(MCU_VERSION_FILE).strip()
-    except OSError:
-        mcu_version = ""
-    if mcu_version and mcu_version != STOCK_MCU_VERSION:
+    mcu_version = flashed_mcu_version()
+    if mcu_version:
         lines.append(ADXL_INCLUDE % mcu_version)
+        # SHAPER_CALIBRATE needs numpy; an update may come without install.sh.
+        cmd_numpy()
     text = ("# Written by FLSUN_klipper each time upstream Klipper starts: the [include]\n"
             "# lines of printer.cfg. Don't edit; changes are overwritten.\n\n"
             + "\n".join(lines) + "\n")
@@ -367,7 +401,7 @@ def cmd_extras():
 
 if __name__ == "__main__":
     commands = {"create": cmd_create, "includes": cmd_includes,
-                "extras": cmd_extras}
+                "extras": cmd_extras, "numpy": cmd_numpy}
     if len(sys.argv) != 2 or sys.argv[1] not in commands:
         sys.exit(__doc__)
     commands[sys.argv[1]]()
