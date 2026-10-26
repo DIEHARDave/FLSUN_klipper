@@ -28,12 +28,12 @@ FLSun changed about 900 lines of Klipper and added a closed-source library. Thes
 
 ### What's different
 
-- **No ADXL345 (resonance measurement) on FLSun's mainboard firmware,** which speaks an older protocol. Your input shaper values keep working; to measure again, see [Input shaping](#input-shaping).
+- **No ADXL345 (resonance measurement) on FLSun's mainboard firmware,** which speaks an older protocol. Your input shaper values keep working; to measure again, [flash the mainboard](mcu/README.md) or see [Input shaping](#input-shaping).
 - **No size calibration** (`SIZE_ANALYZE`, `M101`, `x_offset`/`y_offset` in `[printer]`). It does nothing unless you ran FLSun's size calibration.
 - **No FLSun bed-mesh adjustments.** FLSun's Klipper added a fixed 0.08 mm pattern to every new 7×7 mesh and lowered Z slightly along moves longer than 10 mm. Meshes made with FLSun's Klipper already include the first. If first layers look different from before, this is the place to look.
 - **FLSun-only commands are gone:** `F100`, `F102`–`F104`, `F108`, `F109`, `M108`, `M101`, `M205`, `M665`, `PRINTER_WORKMODE`. The stock macros no longer use them.
 - The extruder's `min_temp` is 0 °C instead of -200 °C, so a broken thermistor stops the printer.
-- Klipper reports two warnings at every start: the mainboard firmware is missing `spi_set_sw_bus` and `STEPPER_STEP_BOTH_EDGE`. They're expected and harmless.
+- With FLSun's mainboard firmware, Klipper reports two warnings at every start: the firmware is missing `spi_set_sw_bus` and `STEPPER_STEP_BOTH_EDGE`. They're harmless; [flashing the mainboard](mcu/README.md) removes them.
 
 ## Requirements
 
@@ -95,13 +95,11 @@ After the power comes back, Mainsail and Fluidd ask whether to continue the prin
 
 ## The mainboard (optional)
 
-Nothing here flashes the mainboard. For people who want to (for the ADXL345 or newer firmware features), `tools/` has what has been worked out so far:
+FLSUN_klipper works with FLSun's mainboard firmware as it is. Flashing the mainboard with current Klipper firmware removes the two firmware warnings and makes the ADXL345 work (`MEASURING_RESONANCES`). **[mcu/README.md](mcu/README.md)** has the tested firmware image, a guided script that backs up the mainboard, puts a rollback image on its card and flashes one confirmed step at a time, and the ways back. It was all done on a real T1 Pro.
 
-- The mainboard is an STM32F103VE with the MKS Robin Nano 28 KiB bootloader. Upstream Klipper firmware for it: STM32F103, 28 KiB bootloader, 8 MHz crystal, serial on USART3 (PB11/PB10), 250000 baud. The bootloader flashes `Robin_nano35.bin` (made with `scripts/update_mks_robin.py`) from the microSD card in the **mainboard's** slot, not the Linux board's.
-- **Back up the mainboard first:** `sudo ~/FLSUN_klipper/tools/backup_mcu.sh` saves its whole flash (bootloader and FLSun's firmware) and stops Klipper for about 12 minutes. FLSun's STM32 is read-protected, so an ST-Link can't read it, and removing the protection erases the bootloader. Reading it through Klipper is the only way to keep a copy, and the copy is the only way back to FLSun's firmware.
-- `tools/t1_spi_flash.py` writes firmware to the mainboard's card from the printer, using upstream Klipper's `spi_flash` (with Klipper stopped). Give it the plain `out/klipper.bin`: it converts the image for the bootloader itself, so an already converted `Robin_nano35.bin` would be converted twice. The bootloader only installs the file at power-on, so **turn the printer off and on** after the upload; a reset isn't enough. Its `-c` check always reports success and only shows that the card can be read. Flashed this way on a T1 Pro (v0.13.0-816, 64 GB FAT32 card): both firmware warnings went away and the ADXL345 commands exist again.
-
-Once the mainboard runs new firmware, FLSun's Klipper can no longer talk to it, so switching back to stock also means flashing FLSun's firmware back. Upstream Klipper records the firmware version the mainboard reports at every start (`~/printer_data/flsun_klipper_mcu_version`). While that isn't FLSun's `v0.10.0-439-gdfa5afdf`, `switch_klipper.sh stock`, `uninstall.sh` and FLSUN_Updater's `[restore]` keep the service on upstream Klipper instead of switching to a Klipper that can't connect. After flashing FLSun's firmware back, `sudo ~/FLSUN_klipper/scripts/switch_klipper.sh stock --force`.
+```sh
+sudo python3 ~/FLSUN_klipper/mcu/mcu_update.py
+```
 
 ## Testing changes
 
