@@ -9,13 +9,20 @@ This folder has everything needed to flash the mainboard with current Klipper fi
 
 ## Tested on real hardware
 
-All of this was done on a real FLSun T1 Pro (FLSun firmware 1.0.0.6, mainboard firmware `v0.10.0-439-gdfa5afdf`), not just in theory:
+All of this was done on a real FLSun T1 Pro (FLSun firmware 1.0.0.6, mainboard firmware `v0.10.0-439-gdfa5afdf`, a 64 GB FAT32 card in the mainboard's slot), not just in theory. On 2026-10-26, `mcu_update.py` ran the whole way through on it, starting from FLSun's stock mainboard firmware:
 
-- **Backup:** the whole 512 KB flash (bootloader and firmware) was read through Klipper and checked against checksums.
-- **Card access:** the mainboard's microSD card (a 64 GB FAT32 card) was read and written through the mainboard, with read-back checks.
-- **Flash:** this exact image (`firmware/klipper.bin`, sha256 `8724815976c14f36…`) was written to the card. After the power cycle the bootloader had renamed it to `ROBIN_NANO35.CUR`, and the mainboard reported `v0.13.0-816-gee2c6fb6b`.
-- **After the flash:** Klipper came up ready with no firmware warnings, and the ADXL345 answered `ACCELEROMETER_QUERY`.
-- **Input shaper:** `MEASURING_RESONANCES` ran and saved the result, EI 40.6 Hz for X and MZV 34.6 Hz for Y.
+| Step | Result on the T1 Pro |
+|---|---|
+| 1. Checks | All passed; the mainboard's card was listed. |
+| 2. Backup | 524288 bytes read in 668 s, checksums written. The bootloader matched the reference T1 Pro's, and the firmware cut from the backup was byte-identical to FLSun's stock image (`stock/`). |
+| 3. Rollback image | `ROLLBACK.BIN` (357920 bytes), `MCUFULL.BIN` (524288 bytes) and `ROLLBACK.TXT` written and read back OK. |
+| 4. Flash | `Robin_nano35.bin` (41072 bytes) written to the card. |
+| 5. Power cycle | After switching off and on, the mainboard reported `v0.13.0-816-gee2c6fb6b`. The bootloader had renamed the file to `ROBIN_NANO35.CUR`. |
+| 6. Checks | Klipper restarted once for `adxl.cfg`. Then: no firmware warnings, version recorded, `adxl.cfg` included, numpy present, `ACCELEROMETER_QUERY` answered. |
+| 7. `PROBE_ACCURACY` | Run 1: range 0.047 mm, standard deviation 0.014 mm. Run 2: range 0.038 mm, standard deviation 0.011 mm, average −0.29 mm both times. |
+| 8. `MEASURING_RESONANCES` | X: EI 40.6 Hz (MZV 34.6 Hz, 2.9 % vibrations). Y: MZV 34.6 Hz. Saved. An earlier manual run on the same printer gave the same values. |
+
+**The rollback was tested on the same printer too.** Just before that run, `mcu_update.py rollback` put FLSun's stock firmware back on the flashed mainboard. After the power cycle, the first start stopped with "MCU Protocol error" while Klipper dropped `adxl.cfg`. The script restarted Klipper, and it came up ready on `v0.10.0-439-gdfa5afdf` with FLSun's two usual warnings.
 
 ## What you need
 
@@ -53,7 +60,7 @@ Any of these puts back the firmware the mainboard had before (FLSun's, normally)
    sudo python3 ~/FLSUN_klipper/mcu/mcu_update.py rollback
    ```
 
-   It writes the firmware from your backup to the card. If there's no backup, it writes FLSun's stock image from `stock/`. Then it asks you to power-cycle. Run the same command again afterwards to check. The first start on the old firmware can stop with "Command format mismatch: query_adxl345" while Klipper drops `adxl.cfg`; the script restarts Klipper once to clear that.
+   It writes the firmware from your backup to the card. If there's no backup, it writes FLSun's stock image from `stock/`. Then it asks you to power-cycle. Run the same command again afterwards to check. The first start on the old firmware stops with an "MCU Protocol error" while Klipper drops `adxl.cfg`; the script restarts Klipper once to clear that.
 2. **By hand, if the printer won't talk to the mainboard:** take the card out of the mainboard. On a computer, rename `ROLLBACK.BIN` to `Robin_nano35.bin`, put the card back and switch the printer on. `stock/stock_klipper_app.bin` is FLSun's firmware unconverted; `ROLLBACK.BIN` on the card is already converted.
 3. **ST-Link, last resort:** nothing here writes the bootloader, but if it were ever damaged, `MCUFULL.BIN` / `mcu_flash_full_512k.bin` is the whole chip. The STM32 is read-protected (RDP level 1), so removing the protection erases it first. Then write the backup at `0x08000000`.
 

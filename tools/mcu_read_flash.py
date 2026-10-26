@@ -6,7 +6,11 @@
 #   python mcu_read_flash.py <klippy dir> <out file> <start> <length>
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
-import sys, struct, time
+import logging, sys, struct, time
+
+# A stopped Klipper leaves the MCU configured, so it keeps sending sensor
+# reports; upstream's serialhdl logs each unhandled one as a warning.
+logging.basicConfig(level=logging.ERROR)
 
 klippy_dir, out = sys.argv[1], sys.argv[2]
 start, length = int(sys.argv[3], 0), int(sys.argv[4], 0)

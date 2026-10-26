@@ -238,6 +238,13 @@ class KlipperStopped:
     """Stops Klipper for the with-block and always starts it again."""
     def __enter__(self):
         refuse_if_printing()
+        # The T1 boots with a wrong clock and then sets it, so systemd can see
+        # the unit files as changed and warns on every systemctl.
+        reload = subprocess.run(
+            ["systemctl", "show", "klipper", "-p", "NeedDaemonReload"],
+            stdout=subprocess.PIPE, universal_newlines=True).stdout
+        if "=yes" in reload:
+            subprocess.call(["systemctl", "daemon-reload"])
         say("  Stopping Klipper")
         subprocess.call(["systemctl", "stop", "klipper"])
         time.sleep(2)
@@ -278,6 +285,7 @@ def flash_image(image):
         os.remove(old)
     rc, out = run_capture([KLIPPY_PY, os.path.join(TOOLS, "t1_spi_flash.py"),
                            DEVICE, "flsun-t1-pro", work_bin], cwd=KLIPPER_DIR)
+    chown_tree(WORK)
     return rc == 0 and "Firmware Upload Complete" in out
 
 
@@ -460,6 +468,7 @@ def step_card(state):
                      "ROLLBACK.TXT", txt)
         if rc == 0:
             card("ls")
+    chown_tree(WORK)
     if rc != 0:
         stop("Writing to the card failed; nothing was flashed.")
     ok("rollback image and backup are on the card, read back and checked")
@@ -675,8 +684,8 @@ def rollback(state):
     if os.geteuid() != 0:
         stop("Run it with sudo.")
     if state.get("step") == "rollback_power_cycle":
-        # The first start on the old firmware stops at the ADXL345 ("Command
-        # format mismatch") after dropping adxl.cfg; a restart then works.
+        # The first start on the old firmware stops with "MCU Protocol error"
+        # (the ADXL345 commands) after dropping adxl.cfg; a restart then works.
         if not wait_ready(60):
             restart_klipper()
         current = mcu_version()
@@ -686,7 +695,7 @@ def rollback(state):
             state.update(step="check", rolled_back_at=time.time())
             save_state(state)
             say("Rolled back. Klipper's config drops adxl.cfg by itself; if "
-                "Klipper reports\n'Command format mismatch', run RESTART once.")
+                "Klipper reports an\n'MCU Protocol error', run RESTART once.")
             return
         bad("the mainboard still reports %s; switch the printer off and on "
             "again." % current)
