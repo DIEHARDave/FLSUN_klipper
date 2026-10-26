@@ -28,7 +28,7 @@ FLSun changed about 900 lines of Klipper and added a closed-source library. Thes
 
 ### What's different
 
-- **No ADXL345 (resonance measurement).** FLSun's mainboard firmware speaks an older protocol. Your input shaper values keep working; to measure again, see [Input shaping](#input-shaping).
+- **No ADXL345 (resonance measurement) on FLSun's mainboard firmware,** which speaks an older protocol. Your input shaper values keep working; to measure again, see [Input shaping](#input-shaping).
 - **No size calibration** (`SIZE_ANALYZE`, `M101`, `x_offset`/`y_offset` in `[printer]`). It does nothing unless you ran FLSun's size calibration.
 - **No FLSun bed-mesh adjustments.** FLSun's Klipper added a fixed 0.08 mm pattern to every new 7×7 mesh and lowered Z slightly along moves longer than 10 mm. Meshes made with FLSun's Klipper already include the first. If first layers look different from before, this is the place to look.
 - **FLSun-only commands are gone:** `F100`, `F102`–`F104`, `F108`, `F109`, `M108`, `M101`, `M205`, `M665`, `PRINTER_WORKMODE`. The stock macros no longer use them.
@@ -85,7 +85,9 @@ After the power comes back, Mainsail and Fluidd ask whether to continue the prin
 
 ## Input shaping
 
-FLSun's Klipper can still use the ADXL345 with FLSun's mainboard firmware:
+**With the mainboard flashed** (see [The mainboard](#the-mainboard-optional)), upstream Klipper uses the ADXL345 itself: `MEASURING_RESONANCES` homes, runs `SHAPER_CALIBRATE` and saves the result to `printer_upstream.cfg`, as on FLSun's Klipper. `config/adxl.cfg` holds the ADXL345 and `[resonance_tester]` settings from FLSun's `printer.cfg`. It's only included while the mainboard runs newer firmware than FLSun's, since FLSun's firmware can't run it. When the firmware changes either way, Klipper rewrites the includes and asks for a `RESTART`. After flashing FLSun's firmware back, the first start can stop with "Command format mismatch: query_adxl345"; `RESTART` once.
+
+**With FLSun's mainboard firmware**, FLSun's Klipper can still use the ADXL345:
 
 1. `sudo ~/FLSUN_klipper/scripts/switch_klipper.sh stock`
 2. Run FLSun's `MEASURING_RESONANCES` (or `SHAPER_CALIBRATE`). The results are saved to `printer.cfg`.

@@ -8,7 +8,8 @@
                                    its main sections if that lacks them.
     flsun_klipper_cfg.py includes  Write flsun_klipper_includes.cfg: the [include]
                                    lines of printer.cfg, where plugins add theirs,
-                                   with stock-only files swapped for upstream ones.
+                                   with stock-only files swapped for upstream ones,
+                                   plus adxl.cfg once the mainboard is flashed.
                                    Also links the modules (as extras does) and adds
                                    what create would have to a printer_upstream.cfg
                                    that lacks it. Runs before every start of
@@ -30,6 +31,13 @@ CONFIG_DIR = os.environ.get("FLSUN_KLIPPER_CONFIG_DIR",
 STOCK_CFG = os.path.join(CONFIG_DIR, "printer.cfg")
 UPSTREAM_CFG = os.path.join(CONFIG_DIR, "printer_upstream.cfg")
 INCLUDES_CFG = os.path.join(CONFIG_DIR, "flsun_klipper_includes.cfg")
+# The mainboard firmware upstream Klipper last saw (extras/t1_mcu_version.py).
+# Anything but FLSun's own gets adxl.cfg, which FLSun's firmware can't run.
+MCU_VERSION_FILE = os.environ.get(
+    "FLSUN_KLIPPER_MCU_VERSION_FILE",
+    os.path.join(os.path.dirname(CONFIG_DIR), "flsun_klipper_mcu_version"))
+STOCK_MCU_VERSION = "v0.10.0-439-gdfa5afdf"
+ADXL_INCLUDE = "[include flsun_klipper/adxl.cfg]  # the mainboard runs %s"
 SAVE_MARK = "#*# <---------------------- SAVE_CONFIG ---------------------->"
 
 # Files included by printer.cfg that only work with FLSun's Klipper, and what
@@ -299,6 +307,12 @@ def cmd_includes():
                         lines.append("[include %s]  # instead of %s" % (REPLACE[n], n))
                 else:
                     lines.append("[include %s]" % n)
+    try:
+        mcu_version = read(MCU_VERSION_FILE).strip()
+    except OSError:
+        mcu_version = ""
+    if mcu_version and mcu_version != STOCK_MCU_VERSION:
+        lines.append(ADXL_INCLUDE % mcu_version)
     text = ("# Written by FLSUN_klipper each time upstream Klipper starts: the [include]\n"
             "# lines of printer.cfg. Don't edit; changes are overwritten.\n\n"
             + "\n".join(lines) + "\n")
