@@ -16,7 +16,6 @@ All of this was done on a real FLSun T1 Pro (FLSun firmware 1.0.0.6, mainboard f
 - **Flash:** this exact image (`firmware/klipper.bin`, sha256 `8724815976c14f36…`) was written to the card. After the power cycle the bootloader had renamed it to `ROBIN_NANO35.CUR`, and the mainboard reported `v0.13.0-816-gee2c6fb6b`.
 - **After the flash:** Klipper came up ready with no firmware warnings, and the ADXL345 answered `ACCELEROMETER_QUERY`.
 - **Input shaper:** `MEASURING_RESONANCES` ran and saved the result, EI 40.6 Hz for X and MZV 34.6 Hz for Y.
-- **Printing:** the printer has printed on the new firmware.
 
 ## What you need
 
