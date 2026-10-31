@@ -1,5 +1,7 @@
 # FLSUN_klipper
 
+> **Parts:** the printers, boards, readers and other gear that go with this project are listed at [projects.die-hard.net/gear](https://projects.die-hard.net/gear) (Amazon affiliate links).
+
 Runs current upstream [Klipper](https://github.com/Klipper3d/klipper) on the **FLSun T1 Pro**, in place of FLSun's 2022 fork, and updates it from Mainsail's or Fluidd's update manager like any other Klipper.
 
 The mainboard isn't flashed: upstream Klipper talks to FLSun's mainboard firmware as it is. FLSun's Klipper, its `printer.cfg` and its service stay on the printer untouched, and one command switches between the two.
