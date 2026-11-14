@@ -25,9 +25,21 @@ All of this was done on a real FLSun T1 Pro (FLSun firmware 1.0.0.6, mainboard f
 
 **The rollback was tested on the same printer too.** Just before that run, `mcu_update.py rollback` put FLSun's stock firmware back on the flashed mainboard. After the power cycle, the first start stopped with "MCU Protocol error" while Klipper dropped `adxl.cfg`. The script restarted Klipper, and it came up ready on `v0.10.0-439-gdfa5afdf` with FLSun's two usual warnings.
 
+## The regular T1
+
+Not tested on a T1 yet, but it should work. A T1 owner reports that the T1's mainboard is the same as the T1 Pro's ([FLSUN_Updater#1](https://github.com/DIEHARDave/FLSUN_Updater/issues/1)), and FLSUN_klipper runs on their T1 with the T1 Pro config. Klipper firmware takes its pin assignments from the host, so the same image runs on any board with the same chip, clock, serial port and bootloader. The T1 Pro config working on a T1 already shows the pins match.
+
+`mcu_update.py` checks this before it changes anything:
+
+- **Step 1** compares the running mainboard firmware's `MCU`, `CLOCK_FREQ`, `SERIAL_BAUD` and `RESERVE_PINS_serial` with the bundled image (`stm32f103xe`, 72 MHz, 250000 baud, USART3 on `PB11,PB10`). If any of them differs, it stops.
+- **Step 1** also lists the mainboard's microSD card. If the card can't be read, it stops.
+- **Step 2** backs up the whole flash and checks that firmware starts at `0x08007000`, where the image expects it. If the bootloader isn't byte-identical to the tested T1 Pro's, step 4 asks again before it writes anything to the card.
+
+If your T1's mainboard doesn't report FLSun's `v0.10.0-439-gdfa5afdf`, step 1 tells you. The rollback then uses your own backup rather than `stock/`. **If you flash a T1, please report how it went** in [an issue](https://github.com/DIEHARDave/FLSUN_klipper/issues/new), with the output of each step.
+
 ## What you need
 
-- A T1 Pro running upstream Klipper through [FLSUN_klipper](../README.md), which needs [FLSUN_moonraker](https://github.com/DIEHARDave/FLSUN_moonraker). `sudo ~/FLSUN_klipper/scripts/switch_klipper.sh status` should say `Set up: upstream Klipper`.
+- A T1 Pro (or a T1, see [above](#the-regular-t1)) running upstream Klipper through [FLSUN_klipper](../README.md), which needs [FLSUN_moonraker](https://github.com/DIEHARDave/FLSUN_moonraker). `sudo ~/FLSUN_klipper/scripts/switch_klipper.sh status` should say `Set up: upstream Klipper`.
 - A **FAT32 microSD card in the mainboard's own slot**. That's not the slot on the printer's Linux board: the mainboard can't see that one. The card used here is 64 GB. MKS bootloaders can be picky about large cards, so if the flash isn't picked up, try one of 32 GB or less.
 - SSH access as `root`, or as `pi` with `sudo`, and access to the printer's power switch.
 - About 30 minutes. The printer can't print during the update.
@@ -42,7 +54,7 @@ The script does one step and asks before the next. It remembers where it is: aft
 
 | Step | What happens | Klipper stopped |
 |---|---|---|
-| 1. Checks | Checks the bundled image's checksums, the tools, that Klipper is ready and idle, and the firmware the mainboard runs now. Then it reads the card's file list. A firmware file already on the card, which the bootloader would flash at the next power-on, is removed if you agree. | about 30 s |
+| 1. Checks | Checks the bundled image's checksums, the tools, that Klipper is ready and idle, the firmware the mainboard runs now, and that its chip, clock, serial port and baud rate match the image (it stops if not). Then it reads the card's file list. A firmware file already on the card, which the bootloader would flash at the next power-on, is removed if you agree. | about 30 s |
 | 2. Backup | Reads the whole 512 KB flash, the option bytes and the chip ID through Klipper. It saves them to `~/printer_data/config/mcu_backup/<date>/` with checksums, plus the firmware cut out of it and the bootloader. It compares both with the tested T1 Pro's. **Download that folder** (Mainsail or Fluidd, config files): it's the only copy of your mainboard's bootloader. | about 12 min |
 | 3. Rollback image | Writes `ROLLBACK.BIN` (your current firmware, ready for the bootloader), `MCUFULL.BIN` (the full backup) and `ROLLBACK.TXT` to the card. Each file is read back and checked. None of them is a name the bootloader flashes. | about 1 min |
 | 4. Flash | Writes the new firmware to the card as `Robin_nano35.bin`. Nothing changes yet. | about 1 min |

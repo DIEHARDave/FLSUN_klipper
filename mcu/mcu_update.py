@@ -183,6 +183,24 @@ def mcu_version():
     return query("mcu=mcu_version").get("mcu", {}).get("mcu_version")
 
 
+# What the bundled image must agree on with the running mainboard firmware.
+# Klipper takes its pins from the host, so a board (T1 or T1 Pro) with the
+# same chip, clock, serial port and baud rate runs the same image.
+HARDWARE_KEYS = ("MCU", "CLOCK_FREQ", "SERIAL_BAUD", "RESERVE_PINS_serial")
+
+
+def hardware_mismatches():
+    """Returns (key, mainboard value, image value) for each difference, or
+    None if the mainboard's constants can't be read."""
+    live = query("mcu=mcu_constants").get("mcu", {}).get("mcu_constants")
+    if not live:
+        return None
+    with open(os.path.join(FIRMWARE_DIR, "klipper.dict")) as f:
+        image = json.load(f)["config"]
+    return [(k, live.get(k), image.get(k)) for k in HARDWARE_KEYS
+            if str(live.get(k)) != str(image.get(k))]
+
+
 def wait_ready(timeout=120):
     end = time.time() + timeout
     while time.time() < end:
@@ -322,6 +340,19 @@ def step_check(state):
         problems += 1
     current = mcu_version()
     say("  Mainboard firmware now: %s" % current)
+    diff = hardware_mismatches()
+    if diff is None:
+        bad("can't read the mainboard's chip details from Klipper")
+        problems += 1
+    elif diff:
+        for key, live, image in diff:
+            bad("%s: the mainboard has %s, the image is built for %s"
+                % (key, live, image))
+        stop("This mainboard isn't the one the image was built for. Nothing "
+             "was changed.")
+    else:
+        ok("chip, clock, serial port and baud rate match the image (%s)"
+           % ", ".join(HARDWARE_KEYS))
     if current == target:
         note("The mainboard already runs %s." % target)
         if ask("Skip to the checks after flashing (verify, PROBE_ACCURACY, "
@@ -397,7 +428,8 @@ def step_backup(state):
         ok("bootloader identical to FLSun's on the T1 Pro this was tested on")
     else:
         note("the bootloader differs from the tested T1 Pro's (sha256 %s). "
-             "Continue only if you know your board." % boot_sha[:16])
+             "The backup is saved either way." % boot_sha[:16])
+        state["bootloader_differs"] = boot_sha
     stock_sha = sha256_file(os.path.join(STOCK_DIR, "stock_klipper_app.bin"))
     if hashlib.sha256(app).hexdigest() == stock_sha:
         ok("firmware identical to FLSun's stock %s (mcu/stock)" % STOCK_VERSION)
@@ -482,6 +514,15 @@ def step_flash(state):
     say("Writes Klipper %s to the card as Robin_nano35.bin. Nothing changes "
         "until the\nprinter is switched off and on: then the bootloader "
         "flashes it." % target)
+    if state.get("bootloader_differs"):
+        note("Your bootloader isn't the one on the T1 Pro this was tested on "
+             "(seen in the backup step).\n       The image needs an MKS Robin "
+             "Nano bootloader that reads Robin_nano35.bin and\n       starts "
+             "firmware at 0x08007000. Your backup and ROLLBACK.BIN are the "
+             "way back.")
+        if not ask("Your bootloader differs from the tested one. Flash "
+                   "anyway?"):
+            return False
     if not ask("Write the new firmware to the card?"):
         return False
     with KlipperStopped():
