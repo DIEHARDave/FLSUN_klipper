@@ -1,6 +1,7 @@
 # Records the mainboard's firmware version for switch_klipper.sh and the includes.
 #
-# FLSun's Klipper only talks to FLSun's mainboard firmware (v0.10.0-439).
+# FLSun's Klipper only talks to FLSun's mainboard firmware (v0.10.0-439 on the
+# T1 Pro, v1.0.6.3 on the regular T1).
 # Once the mainboard is flashed with newer firmware, switching the klipper
 # service back to FLSun's Klipper would leave a Klipper that can't connect.
 # Each time upstream Klipper identifies the mainboard, this writes the version
@@ -18,10 +19,17 @@ import logging, os, subprocess, sys
 
 DEFAULT_PATH = os.environ.get('FLSUN_KLIPPER_MCU_VERSION_FILE',
                               '~/printer_data/flsun_klipper_mcu_version')
-STOCK_MCU_VERSION = 'v0.10.0-439-gdfa5afdf'
+STOCK_MCU_VERSION = 'v0.10.0-439-gdfa5afdf'   # T1 Pro
+STOCK_T1_VERSION = 'v1.0.6.3'                 # regular T1, as v1.0.6.3-18-g9d78b20
 CFG_SCRIPT = os.path.join(
     os.path.dirname(os.path.dirname(os.path.realpath(__file__))),
     'scripts', 'flsun_klipper_cfg.py')
+
+
+def is_stock(version):
+    """FLSun's own mainboard firmware, on the T1 Pro or the regular T1."""
+    return (version in (STOCK_MCU_VERSION, STOCK_T1_VERSION)
+            or version.startswith(STOCK_T1_VERSION + '-'))
 
 
 class T1McuVersion:
@@ -52,8 +60,7 @@ class T1McuVersion:
             return
         # Only a change between FLSun's firmware and newer changes the includes.
         # No file yet counts as FLSun's: that's what the includes assumed.
-        if ((old or STOCK_MCU_VERSION) == STOCK_MCU_VERSION) \
-                == (version == STOCK_MCU_VERSION):
+        if is_stock(old or STOCK_MCU_VERSION) == is_stock(version):
             return
         try:
             subprocess.run([sys.executable, CFG_SCRIPT, 'includes'],
@@ -62,7 +69,7 @@ class T1McuVersion:
             logging.warning("t1_mcu_version: %s includes failed: %s",
                             CFG_SCRIPT, e)
             return
-        what = ("adds the ADXL345 (adxl.cfg)" if version != STOCK_MCU_VERSION
+        what = ("adds the ADXL345 (adxl.cfg)" if not is_stock(version)
                 else "removes the ADXL345 (adxl.cfg)")
         self.printer.lookup_object('configfile').runtime_warning(
             "The mainboard firmware changed to %s, which %s. Run RESTART to "

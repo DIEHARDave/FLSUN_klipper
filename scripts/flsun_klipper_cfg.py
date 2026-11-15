@@ -42,7 +42,8 @@ INCLUDES_CFG = os.path.join(CONFIG_DIR, "flsun_klipper_includes.cfg")
 MCU_VERSION_FILE = os.environ.get(
     "FLSUN_KLIPPER_MCU_VERSION_FILE",
     os.path.join(os.path.dirname(CONFIG_DIR), "flsun_klipper_mcu_version"))
-STOCK_MCU_VERSION = "v0.10.0-439-gdfa5afdf"
+STOCK_MCU_VERSION = "v0.10.0-439-gdfa5afdf"   # T1 Pro
+STOCK_T1_VERSION = "v1.0.6.3"                 # regular T1, as v1.0.6.3-18-g9d78b20
 # The [input_shaper] of printer.cfg's SAVE_CONFIG block as last seen, so a new
 # calibration on FLSun's Klipper is told apart from one upstream Klipper made.
 STOCK_SHAPER_FILE = os.environ.get(
@@ -372,13 +373,19 @@ def sync_shaper():
     write(STOCK_SHAPER_FILE, stock + "\n")
 
 
+def is_stock(version):
+    """FLSun's own mainboard firmware, on the T1 Pro or the regular T1."""
+    return (version in (STOCK_MCU_VERSION, STOCK_T1_VERSION)
+            or version.startswith(STOCK_T1_VERSION + "-"))
+
+
 def flashed_mcu_version():
     """The mainboard's firmware version if it isn't FLSun's, else None."""
     try:
         version = read(MCU_VERSION_FILE).strip()
     except OSError:
         return None
-    return version if version and version != STOCK_MCU_VERSION else None
+    return version if version and not is_stock(version) else None
 
 
 def cmd_numpy():

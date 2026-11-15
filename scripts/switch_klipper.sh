@@ -21,7 +21,8 @@ ENV_UP=$HOME_PI/printer_data/systemd/klipper_upstream.env
 LOG=$HOME_PI/printer_data/logs/klippy.log
 MOONRAKER=http://127.0.0.1:7125
 MCU_VERSION_FILE=$HOME_PI/printer_data/flsun_klipper_mcu_version
-STOCK_MCU_VERSION=v0.10.0-439-gdfa5afdf
+STOCK_MCU_VERSION=v0.10.0-439-gdfa5afdf   # T1 Pro
+STOCK_T1_VERSION=v1.0.6.3                 # regular T1, as v1.0.6.3-18-g9d78b20
 
 state() {
     curl -s -m 5 "$MOONRAKER/printer/objects/query?webhooks=state&print_stats=state" \
@@ -49,10 +50,16 @@ need_root() { [ "$(id -u)" = 0 ] || { echo "Run with sudo."; exit 1; }; }
 # The mainboard firmware upstream Klipper last saw; empty if it never recorded one.
 mcu_version() { cat "$MCU_VERSION_FILE" 2>/dev/null | tr -d '[:space:]'; }
 
+# FLSun's own mainboard firmware, on the T1 Pro or the regular T1.
+is_stock() {
+    case "$1" in "$STOCK_MCU_VERSION"|"$STOCK_T1_VERSION"|"$STOCK_T1_VERSION"-*) return 0 ;; esac
+    return 1
+}
+
 refuse_if_flashed() {
     local v; v=$(mcu_version)
-    [ -n "$v" ] && [ "$v" != "$STOCK_MCU_VERSION" ] || return 0
-    echo "The mainboard runs firmware $v, not FLSun's $STOCK_MCU_VERSION."
+    [ -n "$v" ] && ! is_stock "$v" || return 0
+    echo "The mainboard runs firmware $v, not FLSun's ($STOCK_MCU_VERSION, or $STOCK_T1_VERSION on the regular T1)."
     echo "FLSun's Klipper can't talk to it, so the service stays on upstream Klipper."
     echo "Flash FLSun's firmware back first, then run: switch_klipper.sh stock --force"
     exit 1
