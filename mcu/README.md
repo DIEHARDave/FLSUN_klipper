@@ -34,7 +34,10 @@ or SD-card update path. `mcu_update.py` recognizes the known regular-T1
 firmware version (`v1.0.6.3`) during its first checks and routes to the
 no-bootloader workflow below, instead of checking the SD card. If the version
 is different, it checks the full-flash backup for that layout and routes to the
-same workflow before any T1 Pro card write.
+same workflow before any T1 Pro card write. The guided T1 path runs
+`t1_flash.py backup` and `install` for you, then goes on to the same checks as
+on the T1 Pro: the restart for `adxl.cfg`, the firmware version, `PROBE_ACCURACY`
+and `MEASURING_RESONANCES`.
 
 `t1_flash.py` is the separate, not-yet-hardware-validated path for this board.
 It uses Klipper's `debug_write`/`debug_read` over the local USB serial link:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guided mainboard (MCU) firmware update for the FLSun T1 Pro.
+"""Guided mainboard (MCU) firmware update for the FLSun T1 and T1 Pro.
 
     sudo python3 ~/FLSUN_klipper/mcu/mcu_update.py             next step
     sudo python3 ~/FLSUN_klipper/mcu/mcu_update.py status      where it's at
@@ -47,12 +47,16 @@ DEVICE = "/dev/serial/by-id/usb-1a86_USB_Serial-if00-port0"
 MOONRAKER = "http://127.0.0.1:7125"
 
 STOCK_VERSION = "v0.10.0-439-gdfa5afdf"
+T1_NO_BOOTLOADER_VERSION_PREFIX = "v1.0.6.3"
 # FLSun's MKS Robin Nano bootloader (0x08000000-0x08006FFF) on the T1 Pro this
 # was developed on; the application starts at 0x08007000.
 APP_START = 0x7000
 FLASH_SIZE = 0x80000
+FLASH_BASE = 0x08000000
+T1_BOARD_TYPE = "t1-no-bootloader"
 STOCK_BOOTLOADER_SHA256 = \
     "3142e1847cf4bfa70cdd73af831b047f9f8056b28ac19ea337dccc27379d7f11"
+T1_FLASH_TOOL = os.path.join(MCU_DIR, "t1_flash.py")
 
 STEPS = ["check", "backup", "card", "flash", "power_cycle", "verify",
          "probe", "resonances", "done"]
@@ -144,6 +148,67 @@ def check_sums(folder):
                 if not os.path.exists(path) or sha256_file(path) != want:
                     wrong.append(path)
     return wrong
+
+
+def is_t1_no_bootloader_version(version):
+    return (isinstance(version, str)
+            and (version == T1_NO_BOOTLOADER_VERSION_PREFIX
+                 or version.startswith(T1_NO_BOOTLOADER_VERSION_PREFIX + "-")))
+
+
+def is_t1_no_bootloader_backup(dump):
+    if len(dump) != FLASH_SIZE or dump[APP_START:] != b"\xff" * (
+            FLASH_SIZE - APP_START):
+        return False
+    sp, reset = int.from_bytes(dump[:4], "little"), int.from_bytes(
+        dump[4:8], "little")
+    reset_address = reset & ~1
+    return (0x20000000 < sp <= 0x20010000 and sp % 4 == 0
+            and reset & 1
+            and FLASH_BASE <= reset_address < FLASH_BASE + APP_START)
+
+
+def write_backup_checksums(folder):
+    with open(os.path.join(folder, "SHA256SUMS"), "w") as stream:
+        for name in sorted(os.listdir(folder)):
+            if name != "SHA256SUMS":
+                path = os.path.join(folder, name)
+                stream.write("%s  %s\n" % (sha256_file(path), name))
+
+
+def write_t1_backup_metadata(backup_path, dump):
+    folder = os.path.dirname(backup_path)
+    with open(os.path.join(folder, "mcu_id.bin"), "rb") as stream:
+        mcu_id = stream.read()
+    with open(os.path.join(folder, "mcu_optionbytes.bin"), "rb") as stream:
+        option_bytes = stream.read()
+    if len(mcu_id) != 0x14 or len(option_bytes) != 0x10:
+        raise ValueError("the MCU ID or option-byte backup has an unexpected size")
+    metadata = {
+        "created_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "flash_size": FLASH_SIZE,
+        "mcu_uid": mcu_id[8:20].hex(),
+        "option_bytes": option_bytes.hex(),
+        "sha256": hashlib.sha256(dump).hexdigest(),
+    }
+    with open(backup_path + ".json", "w") as stream:
+        json.dump(metadata, stream, indent=2, sort_keys=True)
+        stream.write("\n")
+
+
+def find_t1_no_bootloader_backup():
+    pattern = os.path.join(BACKUP_ROOT, "**", "*.bin")
+    for backup in sorted(glob.glob(pattern, recursive=True), reverse=True):
+        try:
+            if os.path.getsize(backup) != FLASH_SIZE:
+                continue
+            with open(backup, "rb") as stream:
+                dump = stream.read()
+        except OSError:
+            continue
+        if is_t1_no_bootloader_backup(dump):
+            return backup, dump
+    return None, None
 
 
 def firmware_version():
@@ -314,15 +379,14 @@ def step_check(state):
     problems = 0
     if os.geteuid() != 0:
         stop("Run it with sudo: sudo python3 %s" % os.path.realpath(__file__))
-    for folder in (FIRMWARE_DIR, STOCK_DIR):
-        wrong = check_sums(folder)
-        if wrong:
-            bad("checksum mismatch: %s" % ", ".join(wrong))
-            problems += 1
+    wrong = check_sums(FIRMWARE_DIR)
+    if wrong:
+        bad("checksum mismatch: %s" % ", ".join(wrong))
+        problems += 1
     target = firmware_version()
     ok("firmware image %s, checksums match" % target)
-    for path in (KLIPPY_PY, KLIPPER_DIR + "/scripts/update_mks_robin.py",
-                 DROPIN, DEVICE):
+    for path in (KLIPPY_PY, KLIPPER_DIR + "/klippy", DROPIN, DEVICE,
+                 T1_FLASH_TOOL):
         if os.path.exists(path):
             ok("found %s" % path)
         else:
@@ -353,6 +417,14 @@ def step_check(state):
     else:
         ok("chip, clock, serial port and baud rate match the image (%s)"
            % ", ".join(HARDWARE_KEYS))
+    if problems:
+        stop("Fix the problems above, then run this again.")
+    if is_t1_no_bootloader_version(current):
+        note("Regular T1 firmware %s detected; the T1 Pro SD-card updater "
+             "doesn't apply." % current)
+        state.update(step="t1_backup", from_version=current,
+                     board_type=T1_BOARD_TYPE)
+        return True
     if current == target:
         note("The mainboard already runs %s." % target)
         if ask("Skip to the checks after flashing (verify, PROBE_ACCURACY, "
@@ -360,9 +432,35 @@ def step_check(state):
             state["step"] = "verify"
             return True
         return False
+    backup, dump = find_t1_no_bootloader_backup()
+    if backup:
+        note("A saved full-flash backup shows the regular T1 no-bootloader "
+             "layout; using the T1 updater.")
+        if not os.path.exists(backup + ".json"):
+            try:
+                write_t1_backup_metadata(backup, dump)
+            except (OSError, ValueError) as exc:
+                note("That backup lacks usable MCU identity files (%s); "
+                     "taking a fresh T1 backup instead." % exc)
+                state.update(step="t1_backup", from_version=current,
+                             board_type=T1_BOARD_TYPE)
+                return True
+        state.update(step="t1_install", from_version=current,
+                     board_type=T1_BOARD_TYPE, backup=backup)
+        return True
     if current != STOCK_VERSION:
         note("That isn't FLSun's %s. The update still works; the rollback "
              "image will be whatever is on the mainboard now." % STOCK_VERSION)
+    for path in (KLIPPER_DIR + "/scripts/update_mks_robin.py",):
+        if os.path.exists(path):
+            ok("found %s" % path)
+        else:
+            bad("missing %s (is upstream Klipper installed?)" % path)
+            problems += 1
+    wrong = check_sums(STOCK_DIR)
+    if wrong:
+        bad("checksum mismatch: %s" % ", ".join(wrong))
+        problems += 1
     if problems:
         stop("Fix the problems above, then run this again.")
     say("\nNext, the microSD card in the mainboard's slot is checked. That "
@@ -394,9 +492,8 @@ def step_check(state):
 def step_backup(state):
     heading(2, "Back up the whole mainboard flash")
     say("Reads the mainboard's 512 KB flash (bootloader and firmware) and its "
-        "option bytes,\nthrough the mainboard itself: FLSun's STM32 is "
-        "read-protected, so this is the only\nway to copy it. Klipper is "
-        "stopped for about 12 minutes.")
+        "option bytes and chip ID through Klipper. Klipper is stopped for "
+        "about 12 minutes.")
     if not ask("Start the backup?"):
         return False
     stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -415,6 +512,22 @@ def step_backup(state):
         stop("The backup failed; nothing was changed. See the messages above.")
     with open(full, "rb") as f:
         dump = f.read()
+    if is_t1_no_bootloader_backup(dump):
+        note("The backup shows FLSun firmware at page 0 and erased flash after "
+             "0x08007000: no bootloader is present.")
+        try:
+            write_t1_backup_metadata(full, dump)
+        except (OSError, ValueError) as exc:
+            stop("Cannot prepare the board-bound T1 backup metadata: %s" % exc)
+        write_backup_checksums(out)
+        chown_tree(BACKUP_ROOT)
+        say("\nSaved the full T1 backup in %s:" % out)
+        for name in sorted(os.listdir(out)):
+            say("  %s" % name)
+        say("\nDownload this folder before installing; the full backup and "
+            "its JSON sidecar are required for rollback.")
+        state.update(backup=full, step="t1_install", board_type=T1_BOARD_TYPE)
+        return True
     app = dump[APP_START:].rstrip(b"\xff")
     app += b"\xff" * (-len(app) % 4)
     app_file = os.path.join(out, "mcu_app_%s.bin" % state.get("from_version"))
@@ -444,10 +557,7 @@ def step_backup(state):
             and 0x08000000 + APP_START <= reset < 0x08000000 + FLASH_SIZE):
         stop("The firmware part of the backup doesn't look like firmware; "
              "stopping.")
-    with open(os.path.join(out, "SHA256SUMS"), "w") as f:
-        for name in sorted(os.listdir(out)):
-            if name != "SHA256SUMS":
-                f.write("%s  %s\n" % (sha256_file(os.path.join(out, name)), name))
+    write_backup_checksums(out)
     chown_tree(BACKUP_ROOT)
     say("\nSaved in %s:" % out)
     for name in sorted(os.listdir(out)):
@@ -458,6 +568,59 @@ def step_backup(state):
     state["backup"] = out
     state["rollback_image"] = app_file
     state["step"] = "card"
+    return True
+
+
+def step_t1_backup(state):
+    heading(2, "Back up the regular T1 mainboard")
+    say("This uses t1_flash.py to save the full 512 KB flash, MCU unique ID "
+        "and option bytes before any firmware is staged.")
+    if not ask("Start the T1 backup?"):
+        return False
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    out = os.path.join(BACKUP_ROOT, stamp)
+    os.makedirs(out)
+    backup = os.path.join(out, "mcu_flash_full_512k.bin")
+    rc = subprocess.call([KLIPPY_PY, T1_FLASH_TOOL, "backup", backup])
+    if rc:
+        bad("The T1 backup failed; nothing was changed.")
+        return False
+    write_backup_checksums(out)
+    chown_tree(BACKUP_ROOT)
+    say("\nSaved in %s:" % out)
+    for name in sorted(os.listdir(out)):
+        say("  %s" % name)
+    state.update(backup=backup, step="t1_install", board_type=T1_BOARD_TYPE)
+    return True
+
+
+def step_t1_install(state):
+    heading(4, "Install firmware with the no-bootloader T1 flasher")
+    say("(Steps 3 and 5, the card and the power cycle, are for the T1 Pro.)")
+    backup = state.get("backup")
+    if not backup:
+        stop("The T1 backup path is missing from updater state.")
+    say("Backup and MCU identity files:\n  %s\n  %s.json" %
+        (backup, backup))
+    say("Download both files to another computer before continuing. "
+        "Rollback needs them.")
+    if not ask("Have you downloaded the backup files? Stage and install "
+               "the T1 firmware?"):
+        return False
+    rc = subprocess.call([
+        KLIPPY_PY, T1_FLASH_TOOL, "install",
+        "--backup", backup,
+        "--image", os.path.join(FIRMWARE_DIR, "klipper.bin"),
+    ])
+    if rc:
+        bad("The T1 flasher did not complete. The backup is preserved; "
+            "read its error above before retrying.")
+        return False
+    ok("flashed; checking the new firmware")
+    # The same checks as on the T1 Pro: the RESTART that loads adxl.cfg, the
+    # firmware version, PROBE_ACCURACY and MEASURING_RESONANCES. Moving on
+    # also keeps a rerun from flashing again.
+    state["step"] = "verify"
     return True
 
 
@@ -713,7 +876,9 @@ def step_done(state):
     return False
 
 
-STEP_FUNCS = {"check": step_check, "backup": step_backup, "card": step_card,
+STEP_FUNCS = {"check": step_check, "backup": step_backup,
+              "t1_backup": step_t1_backup, "t1_install": step_t1_install,
+              "card": step_card,
               "flash": step_flash, "power_cycle": step_power_cycle,
               "verify": step_verify, "probe": step_probe,
               "resonances": step_resonances, "done": step_done}
@@ -724,6 +889,17 @@ STEP_FUNCS = {"check": step_check, "backup": step_backup, "card": step_card,
 def rollback(state):
     if os.geteuid() != 0:
         stop("Run it with sudo.")
+    if (state.get("board_type") == T1_BOARD_TYPE
+            or is_t1_no_bootloader_version(mcu_version())):
+        backup = state.get("backup")
+        say("This is a regular T1 without a bootloader; the SD-card rollback "
+            "does not apply.")
+        if backup:
+            say("Use the T1 rollback command:\n  sudo %s %s rollback "
+                "--backup %s" % (KLIPPY_PY, T1_FLASH_TOOL, backup))
+        else:
+            say("No board-specific backup is recorded yet.")
+        return
     if state.get("step") == "rollback_power_cycle":
         # The first start on the old firmware stops with "MCU Protocol error"
         # (the ADXL345 commands) after dropping adxl.cfg; a restart then works.
