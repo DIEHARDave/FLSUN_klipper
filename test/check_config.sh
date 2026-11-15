@@ -19,6 +19,7 @@ DICT="${3:-$TEST/stock_mcu_v0.10.0-439-gdfa5afdf.dict}"
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 # The mainboard version extras/t1_mcu_version.py would have recorded.
 export FLSUN_KLIPPER_MCU_VERSION_FILE="$WORK/flsun_klipper_mcu_version"
+export FLSUN_KLIPPER_STOCK_SHAPER_FILE="$WORK/flsun_klipper_stock_shaper"
 python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["version"])' "$DICT" > "$FLSUN_KLIPPER_MCU_VERSION_FILE"
 
 cp "$TEST/printer.cfg" "$WORK/printer.cfg"
@@ -41,3 +42,21 @@ if [ $rc -ne 0 ] || [ -n "$problems" ]; then
 fi
 echo "OK: config loads and test/commands.gcode runs against $(cat "$FLSUN_KLIPPER_MCU_VERSION_FILE")"
 grep -q adxl.cfg "$WORK/flsun_klipper_includes.cfg" && echo "    (with adxl.cfg)" || true
+
+# A new input shaper calibration on FLSun's Klipper: SAVE_CONFIG rewrites
+# printer.cfg's block, then switch_klipper.sh upstream runs "includes" before
+# upstream Klipper starts. Upstream Klipper must then run with the new values.
+sed -i -e 's/^#\*# shaper_type_x = .*/#*# shaper_type_x = ei/' \
+       -e 's/^#\*# shaper_freq_x = .*/#*# shaper_freq_x = 52.6/' "$WORK/printer.cfg"
+FLSUN_KLIPPER_CONFIG_DIR="$WORK" python3 "$REPO/scripts/flsun_klipper_cfg.py" includes
+printf 'SET_INPUT_SHAPER\n' > "$WORK/shaper.gcode"
+set +e
+"$PY" "$KLIPPER/klippy/klippy.py" "$WORK/printer_upstream.cfg" -i "$WORK/shaper.gcode" \
+    -o "$WORK/out2.serial" -v -d "$DICT" -l "$WORK/klippy2.log" > "$WORK/shaper.out" 2>&1
+rc=$?
+set -e
+if [ $rc -ne 0 ] || ! grep -qE "shaper_type_x:ei .*shaper_freq_x:52\.6" "$WORK/klippy2.log" "$WORK/shaper.out"; then
+    echo "FAILED: upstream Klipper didn't pick up the new input shaper (klippy exit $rc)"
+    grep -hiE "shaper|error" "$WORK/klippy2.log" "$WORK/shaper.out" | tail -10; exit 1
+fi
+echo "OK: a new input shaper in printer.cfg reaches upstream Klipper ($(grep -hoE 'shaper_type_x:[^ ]+ shaper_freq_x:[^ ]+' "$WORK/klippy2.log" "$WORK/shaper.out" | tail -1))"

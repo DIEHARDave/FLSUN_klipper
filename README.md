@@ -93,7 +93,9 @@ After the power comes back, Mainsail and Fluidd ask whether to continue the prin
 
 1. `sudo ~/FLSUN_klipper/scripts/switch_klipper.sh stock`
 2. Run FLSun's `MEASURING_RESONANCES` (or `SHAPER_CALIBRATE`). The results are saved to `printer.cfg`.
-3. `sudo ~/FLSUN_klipper/scripts/switch_klipper.sh upstream`, then copy the `shaper_type_x`, `shaper_freq_x`, `shaper_type_y` and `shaper_freq_y` values from the end of `printer.cfg` into the `[input_shaper]` section at the end of `printer_upstream.cfg`, and restart Klipper.
+3. `sudo ~/FLSUN_klipper/scripts/switch_klipper.sh upstream`. Before upstream Klipper starts, the new `[input_shaper]` values are copied from `printer.cfg`'s SAVE_CONFIG block into `printer_upstream.cfg`'s. The old file is kept as `printer_upstream.cfg.bak-<date>`.
+
+Values only get copied when `printer.cfg`'s shaper has changed since upstream Klipper last started. The first start after updating FLSUN_klipper only records the values, so a calibration made on FLSun's Klipper before that update still needs copying by hand once. A calibration upstream Klipper made itself on a flashed mainboard is never overwritten by older `printer.cfg` values.
 
 ## The mainboard (optional)
 

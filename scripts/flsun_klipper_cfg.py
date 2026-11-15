@@ -12,8 +12,9 @@
                                    plus adxl.cfg once the mainboard is flashed.
                                    Also links the modules (as extras does) and adds
                                    what create would have to a printer_upstream.cfg
-                                   that lacks it. Runs before every start of
-                                   upstream Klipper.
+                                   that lacks it, and a new input shaper
+                                   calibration from printer.cfg. Runs before
+                                   every start of upstream Klipper.
     flsun_klipper_cfg.py extras    Link this repo's extras/*.py into upstream
                                    Klipper's klippy/extras, hidden from git.
     flsun_klipper_cfg.py numpy     Install wheels/numpy-*.whl into upstream
@@ -42,6 +43,11 @@ MCU_VERSION_FILE = os.environ.get(
     "FLSUN_KLIPPER_MCU_VERSION_FILE",
     os.path.join(os.path.dirname(CONFIG_DIR), "flsun_klipper_mcu_version"))
 STOCK_MCU_VERSION = "v0.10.0-439-gdfa5afdf"
+# The [input_shaper] of printer.cfg's SAVE_CONFIG block as last seen, so a new
+# calibration on FLSun's Klipper is told apart from one upstream Klipper made.
+STOCK_SHAPER_FILE = os.environ.get(
+    "FLSUN_KLIPPER_STOCK_SHAPER_FILE",
+    os.path.join(os.path.dirname(CONFIG_DIR), "flsun_klipper_stock_shaper"))
 ADXL_INCLUDE = "[include flsun_klipper/adxl.cfg]  # the mainboard runs %s"
 SAVE_MARK = "#*# <---------------------- SAVE_CONFIG ---------------------->"
 
@@ -289,6 +295,83 @@ def fix_calibration():
         print("Commented out the added settings the SAVE_CONFIG block sets")
 
 
+def saved_section(saved, name):
+    """(start, end) of section [name] in the lines of a SAVE_CONFIG block, up
+    to the next section, without the "#*#" lines after it; None if absent."""
+    lines = saved.split("\n")
+    start = None
+    for i, line in enumerate(lines):
+        m = re.match(r"^#\*# \[([^\]]+)\]", line)
+        if start is None:
+            if m and m.group(1).strip().lower() == name:
+                start = i
+            continue
+        if m:
+            break
+    else:
+        if start is None:
+            return None
+        i = len(lines)
+    end = i
+    while end > start + 1 and lines[end - 1].strip() in ("#*#", ""):
+        end -= 1
+    return start, end
+
+
+def shaper_values(saved):
+    """The [input_shaper] options of a SAVE_CONFIG block, one per line."""
+    return "\n".join(option_lines(unsaved(saved), "input_shaper", r"\w+"))
+
+
+def sync_shaper():
+    """Copy a new input shaper calibration from printer.cfg (FLSun's Klipper's
+    MEASURING_RESONANCES) into printer_upstream.cfg's SAVE_CONFIG block.
+
+    New means printer.cfg's values differ from those last seen. Then they're
+    newer than printer_upstream.cfg's, which stays as it is otherwise, so a
+    calibration upstream Klipper made on a flashed mainboard isn't undone."""
+    if not (os.path.exists(UPSTREAM_CFG) and os.path.exists(STOCK_CFG)):
+        return
+    stock_saved = split_saved(read(STOCK_CFG))[1]
+    stock = shaper_values(stock_saved)
+    if not stock:
+        return
+    try:
+        last = read(STOCK_SHAPER_FILE).strip("\n")
+    except OSError:
+        last = None
+    if stock == last:
+        return
+    text = read(UPSTREAM_CFG)
+    config, saved = split_saved(text)
+    current = shaper_values(saved)
+    # Nothing recorded yet (the first start with this): only record, unless
+    # printer_upstream.cfg has no shaper. Which file is newer says nothing, as
+    # plugin installers edit printer.cfg too.
+    copy = current != stock and (last is not None or not current)
+    if copy:
+        start, end = saved_section(stock_saved, "input_shaper")
+        new = stock_saved.split("\n")[start:end]
+        if not saved:
+            config = config.rstrip("\n") + "\n\n"
+            saved = SAVE_MARK + "\n#*# DO NOT EDIT THIS BLOCK OR BELOW. The contents are auto-generated.\n"
+        lines = saved.rstrip("\n").split("\n")
+        where = saved_section(saved, "input_shaper")
+        if where:
+            lines[where[0]:where[1]] = new
+        else:
+            lines += ["#*#"] + new
+        backup = UPSTREAM_CFG + ".bak-" + time.strftime("%Y%m%d-%H%M%S")
+        write(backup, text)
+        write(UPSTREAM_CFG, config + "\n".join(lines) + "\n")
+        print("Copied the input shaper from printer.cfg (%s) to %s. Before: %s"
+              % (", ".join(stock.split("\n")), UPSTREAM_CFG, backup))
+        if option_lines(config, "input_shaper", r"shaper_\w+"):
+            print("%s's own [input_shaper] section sets shaper values, which "
+                  "override the saved ones; remove them" % UPSTREAM_CFG)
+    write(STOCK_SHAPER_FILE, stock + "\n")
+
+
 def flashed_mcu_version():
     """The mainboard's firmware version if it isn't FLSun's, else None."""
     try:
@@ -319,6 +402,7 @@ def cmd_numpy():
 
 def cmd_includes():
     fix_calibration()
+    sync_shaper()
     lines = []
     if os.path.exists(STOCK_CFG):
         config, _saved = split_saved(read(STOCK_CFG))
