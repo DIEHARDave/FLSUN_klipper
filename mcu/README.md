@@ -25,21 +25,62 @@ All of this was done on a real FLSun T1 Pro (FLSun firmware 1.0.0.6, mainboard f
 
 **The rollback was tested on the same printer too.** Just before that run, `mcu_update.py rollback` put FLSun's stock firmware back on the flashed mainboard. After the power cycle, the first start stopped with "MCU Protocol error" while Klipper dropped `adxl.cfg`. The script restarted Klipper, and it came up ready on `v0.10.0-439-gdfa5afdf` with FLSun's two usual warnings.
 
-## The regular T1
+## The regular T1 (no bootloader)
 
-Not tested on a T1 yet, but it should work. A T1 owner reports that the T1's mainboard is the same as the T1 Pro's ([FLSUN_Updater#1](https://github.com/DIEHARDave/FLSUN_Updater/issues/1)), and FLSUN_klipper runs on their T1 with the T1 Pro config. Klipper firmware takes its pin assignments from the host, so the same image runs on any board with the same chip, clock, serial port and bootloader. The T1 Pro config working on a T1 already shows the pins match.
+The regular T1's mainboard is **not** laid out like the T1 Pro's. A T1 owner
+provided a full dump showing FLSun's Klipper starts at `0x08000000`, ends
+before `0x08006800`, and the remainder of flash is erased. There is no bootloader
+or SD-card update path. `mcu_update.py` recognizes the known regular-T1
+firmware version (`v1.0.6.3`) during its first checks and routes to the
+no-bootloader workflow below, instead of checking the SD card. If the version
+is different, it checks the full-flash backup for that layout and routes to the
+same workflow before any T1 Pro card write.
 
-`mcu_update.py` checks this before it changes anything:
+`t1_flash.py` is the separate, not-yet-hardware-validated path for this board.
+It uses Klipper's `debug_write`/`debug_read` over the local USB serial link:
 
-- **Step 1** compares the running mainboard firmware's `MCU`, `CLOCK_FREQ`, `SERIAL_BAUD` and `RESERVE_PINS_serial` with the bundled image (`stm32f103xe`, 72 MHz, 250000 baud, USART3 on `PB11,PB10`). If any of them differs, it stops.
-- **Step 1** also lists the mainboard's microSD card. If the card can't be read, it stops.
-- **Step 2** backs up the whole flash and checks that firmware starts at `0x08007000`, where the image expects it. If the bootloader isn't byte-identical to the tested T1 Pro's, step 4 asks again before it writes anything to the card.
+1. `backup` reads the whole 512 KB flash and records the STM32's unique ID and
+   option bytes in a sidecar JSON file. Keep both output files off the printer
+   as well. Make this backup from the exact board being tested; an issue
+   attachment without its matching metadata is not accepted. `install` checks
+   the UID and live flash against it; `rollback` checks the UID and option bytes.
+2. `install` checks the image vectors, writes it at `0x08007000` using the
+   STM32 halfword flash-program sequence, and verifies the bytes with
+   `debug_read`. Only after that succeeds does it ask you to type `INSTALL T1`.
+   If you decline, the staged image remains and rerunning `install` with that
+   same image resumes at the page-zero confirmation. The backup and full live
+   flash comparison each take about 12 minutes over this serial link.
+3. The assembled RAM flasher then erases page 0, writes the jump shim, and
+   resets into the image. `rollback` asks for `ROLL BACK T1`, erases flash, and
+   restores the original first 28 KB from the full backup.
 
-If your T1's mainboard doesn't report FLSun's `v0.10.0-439-gdfa5afdf`, step 1 tells you. The rollback then uses your own backup rather than `stock/`. **If you flash a T1, please report how it went** in [an issue](https://github.com/DIEHARDave/FLSUN_klipper/issues/new), with the output of each step.
+The tool stops Klipper only after checking Moonraker reports that no print is
+running, and starts it again afterwards. It requires the printer's Klipper
+Python environment and the same Klipper `klippy` directory used by the service.
+For example:
 
-## What you need
+```sh
+sudo /home/pi/klippy-env-upstream/bin/python \
+  ~/FLSUN_klipper/mcu/t1_flash.py backup \
+  /home/pi/printer_data/config/mcu_backup/t1-full.bin
 
-- A T1 Pro (or a T1, see [above](#the-regular-t1)) running upstream Klipper through [FLSUN_klipper](../README.md), which needs [FLSUN_moonraker](https://github.com/DIEHARDave/FLSUN_moonraker). `sudo ~/FLSUN_klipper/scripts/switch_klipper.sh status` should say `Set up: upstream Klipper`.
+sudo /home/pi/klippy-env-upstream/bin/python \
+  ~/FLSUN_klipper/mcu/t1_flash.py install \
+  --backup /home/pi/printer_data/config/mcu_backup/t1-full.bin \
+  --image ~/FLSUN_klipper/mcu/firmware/klipper.bin
+
+sudo /home/pi/klippy-env-upstream/bin/python \
+  ~/FLSUN_klipper/mcu/t1_flash.py rollback \
+  --backup /home/pi/printer_data/config/mcu_backup/t1-full.bin
+```
+
+The host-workflow suite models serial debug commands and flash behavior. This tool has not yet been validated on a physical
+regular T1. If the MCU stops answering over serial, rollback through Klipper is
+unavailable; recovery then requires an external SWD programmer.
+
+## What you need (T1 Pro procedure below)
+
+- A T1 Pro running upstream Klipper through [FLSUN_klipper](../README.md), which needs [FLSUN_moonraker](https://github.com/DIEHARDave/FLSUN_moonraker). `sudo ~/FLSUN_klipper/scripts/switch_klipper.sh status` should say `Set up: upstream Klipper`. For a regular T1, use [the no-bootloader procedure above](#the-regular-t1-no-bootloader).
 - A **FAT32 microSD card in the mainboard's own slot**. That's not the slot on the printer's Linux board: the mainboard can't see that one. The card used here is 64 GB. MKS bootloaders can be picky about large cards, so if the flash isn't picked up, try one of 32 GB or less.
 - SSH access as `root`, or as `pi` with `sudo`, and access to the printer's power switch.
 - About 30 minutes. The printer can't print during the update.
@@ -84,6 +125,7 @@ After rolling back, `switch_klipper.sh stock` works again; it refuses while the 
 | File | |
 |---|---|
 | `mcu_update.py` | The guided update and rollback. Python 3.7, standard library only. |
+| `t1_flash.py` | Backup, no-bootloader install, and rollback for a regular T1. |
 | `firmware/klipper.bin` | Klipper `v0.13.0-816-gee2c6fb6b` for the T1 Pro mainboard, plain, **not** converted for the bootloader. |
 | `firmware/klipper.dict` | Its command dictionary. |
 | `firmware/klipper.config` | The `make menuconfig` settings it was built with. |
