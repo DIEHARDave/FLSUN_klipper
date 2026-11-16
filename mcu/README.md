@@ -39,8 +39,15 @@ same workflow before any T1 Pro card write. The guided T1 path runs
 on the T1 Pro: the restart for `adxl.cfg`, the firmware version, `PROBE_ACCURACY`
 and `MEASURING_RESONANCES`.
 
-`t1_flash.py` is the separate, not-yet-hardware-validated path for this board.
-It uses Klipper's `debug_write`/`debug_read` over the local USB serial link:
+**Tested on a real regular T1** by a T1 owner on 2026-11-16
+([FLSUN_Updater#1](https://github.com/DIEHARDave/FLSUN_Updater/issues/1)):
+starting from FLSun's `v1.0.6.3-18-g9d78b20`, `mcu_update.py` recognized the
+board, ran the backup and the no-bootloader install, and went through the rest
+of the checks (`PROBE_ACCURACY`, `MEASURING_RESONANCES`). The printer runs the
+new firmware with everything working. The T1 rollback hasn't been run on real
+hardware yet.
+
+`t1_flash.py` is the separate path for this board. It uses Klipper's `debug_write`/`debug_read` over the local USB serial link:
 
 1. `backup` reads the whole 512 KB flash and records the STM32's unique ID and
    option bytes in a sidecar JSON file. Keep both output files off the printer
@@ -77,9 +84,10 @@ sudo /home/pi/klippy-env-upstream/bin/python \
   --backup /home/pi/printer_data/config/mcu_backup/t1-full.bin
 ```
 
-The host-workflow suite models serial debug commands and flash behavior. This tool has not yet been validated on a physical
-regular T1. If the MCU stops answering over serial, rollback through Klipper is
-unavailable; recovery then requires an external SWD programmer.
+The host-workflow suite also models the serial debug commands and flash behavior.
+If the MCU stops answering over serial, rollback through Klipper is
+unavailable; recovery then requires an external SWD programmer (read
+protection is off on the regular T1, so an ST-Link can write the backup back).
 
 ## What you need (T1 Pro procedure below)
 

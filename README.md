@@ -99,7 +99,7 @@ Values only get copied when `printer.cfg`'s shaper has changed since upstream Kl
 
 ## The mainboard (optional)
 
-FLSUN_klipper works with FLSun's mainboard firmware as it is. Flashing the mainboard with current Klipper firmware removes the two firmware warnings and makes the ADXL345 work (`MEASURING_RESONANCES`). **[mcu/README.md](mcu/README.md)** has the tested firmware image, a guided script that backs up the mainboard, puts a rollback image on its card and flashes one confirmed step at a time, and the ways back. It was all done on a real T1 Pro.
+FLSUN_klipper works with FLSun's mainboard firmware as it is. Flashing the mainboard with current Klipper firmware removes the two firmware warnings and makes the ADXL345 work (`MEASURING_RESONANCES`). **[mcu/README.md](mcu/README.md)** has the tested firmware image, a guided script that backs up the mainboard, puts a rollback image on its card and flashes one confirmed step at a time, and the ways back. It was all done on a real T1 Pro, and the regular T1 (which has no bootloader and gets its own flash path) has been flashed successfully by a T1 owner.
 
 ```sh
 sudo python3 ~/FLSUN_klipper/mcu/mcu_update.py

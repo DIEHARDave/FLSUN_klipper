@@ -1,5 +1,5 @@
 #!/bin/bash
-# Switch the FLSun T1 Pro between FLSun's stock Klipper and upstream Klipper.
+# Switch the FLSun T1 Pro or T1 between FLSun's stock Klipper and upstream Klipper.
 #
 #   sudo ~/FLSUN_klipper/scripts/switch_klipper.sh upstream   ~/klipper-upstream, printer_upstream.cfg
 #   sudo ~/FLSUN_klipper/scripts/switch_klipper.sh stock      FLSun's ~/klipper, printer.cfg
@@ -61,7 +61,11 @@ refuse_if_flashed() {
     [ -n "$v" ] && ! is_stock "$v" || return 0
     echo "The mainboard runs firmware $v, not FLSun's ($STOCK_MCU_VERSION, or $STOCK_T1_VERSION on the regular T1)."
     echo "FLSun's Klipper can't talk to it, so the service stays on upstream Klipper."
-    echo "Flash FLSun's firmware back first, then run: switch_klipper.sh stock --force"
+    echo "Upstream Klipper runs MEASURING_RESONANCES / SHAPER_CALIBRATE on this firmware itself."
+    echo "To go back anyway, flash FLSun's firmware back first:"
+    echo "  T1 Pro:      sudo python3 $REPO_DIR/mcu/mcu_update.py rollback"
+    echo "  regular T1:  sudo $HOME_PI/klippy-env-upstream/bin/python $REPO_DIR/mcu/t1_flash.py rollback --backup <your backup .bin>"
+    echo "then run: switch_klipper.sh stock --force"
     exit 1
 }
 
