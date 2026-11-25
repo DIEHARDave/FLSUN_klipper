@@ -18,7 +18,7 @@
 # installed; KLIPPER_REF=<commit, tag or branch> switches it.
 
 # The upstream Klipper this release was tested with on a T1 Pro.
-TESTED_KLIPPER_REF="9cb99754c035b90206ef0a02660f674fc9517e9b"   # v0.13.0-800
+TESTED_KLIPPER_REF="c9559fa04ec6b11fb1a9a1610903546319fcf310"   # v0.14.0
 
 set -e
 trap 'printf "\033[1;31mERROR:\033[0m \"%s\" failed at line %s\n" "$BASH_COMMAND" "$LINENO" >&2' ERR
